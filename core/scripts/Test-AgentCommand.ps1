@@ -1,8 +1,7 @@
 param(
-    [Parameter(Mandatory=$true)]
     [AllowNull()]
     [AllowEmptyString()]
-    [string]$Command
+    [string]$Command = $null
 )
 
 $ErrorActionPreference = "Stop"

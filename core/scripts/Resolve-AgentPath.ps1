@@ -1,8 +1,7 @@
 param(
-    [Parameter(Mandatory=$true)]
     [AllowNull()]
     [AllowEmptyString()]
-    [string]$Path,
+    [string]$Path = $null,
     [switch]$MustExist
 )
 
