@@ -323,23 +323,104 @@ function Resolve-ApplicationCommand {
     }
 }
 
+function Get-InvalidEnvironmentVariableNameReason {
+    param([AllowNull()][string]$Name)
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return "env variable names must not be empty"
+    }
+    if ($Name.IndexOf('=') -ge 0) {
+        return "env variable names must not contain '='"
+    }
+
+    foreach ($ch in $Name.ToCharArray()) {
+        $code = [int][char]$ch
+        if ($code -lt 32 -or $code -eq 127) {
+            return "env variable names must not contain control characters"
+        }
+    }
+
+    return $null
+}
+
+function Get-ChildProcessInfo {
+    param([int]$ParentProcessId)
+
+    $filter = "ParentProcessId = $ParentProcessId"
+    try {
+        return @(Get-CimInstance -ClassName Win32_Process -Filter $filter -ErrorAction Stop)
+    }
+    catch {
+        try {
+            return @(Get-WmiObject -Class Win32_Process -Filter $filter -ErrorAction Stop)
+        }
+        catch {
+            return @()
+        }
+    }
+}
+
+function Get-DescendantProcessIds {
+    param([int]$ParentProcessId)
+
+    $visited = @{}
+    $queue = New-Object System.Collections.ArrayList
+    [void]$queue.Add($ParentProcessId)
+    $descendants = @()
+
+    while ($queue.Count -gt 0) {
+        $currentParent = [int]$queue[0]
+        $queue.RemoveAt(0)
+        $children = Get-ChildProcessInfo -ParentProcessId $currentParent
+        foreach ($child in $children) {
+            $childId = [int]$child.ProcessId
+            if ($visited.ContainsKey($childId)) { continue }
+            $visited[$childId] = $true
+            $descendants += $childId
+            [void]$queue.Add($childId)
+        }
+    }
+
+    return $descendants
+}
+
 function Stop-ProcessTree {
     param([System.Diagnostics.Process]$Process)
 
     $messages = @()
+    $targetIds = @()
     try {
-        $taskkillOutput = & taskkill.exe /PID $Process.Id /T /F 2>&1
-        if ($taskkillOutput) { $messages += (($taskkillOutput | Out-String).Trim()) }
-        if ($LASTEXITCODE -ne 0 -and -not $Process.HasExited) {
-            try { $Process.Kill() } catch {}
+        if (-not $Process.HasExited) { $targetIds += [int]$Process.Id }
+    }
+    catch {
+        $targetIds += [int]$Process.Id
+    }
+    $targetIds += @(Get-DescendantProcessIds -ParentProcessId ([int]$Process.Id))
+    $targetIds = @($targetIds | Where-Object { $_ -and $_ -ne $PID } | Select-Object -Unique)
+
+    foreach ($targetId in $targetIds) {
+        try {
+            $taskkillOutput = & taskkill.exe /PID $targetId /T /F 2>&1
+            if ($taskkillOutput) { $messages += (($taskkillOutput | Out-String).Trim()) }
+            if ($LASTEXITCODE -ne 0) {
+                try { Stop-Process -Id $targetId -Force -ErrorAction SilentlyContinue } catch {}
+            }
+        }
+        catch {
+            $messages += "taskkill failed for PID ${targetId}: $($_.Exception.Message)"
+            try { Stop-Process -Id $targetId -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    }
+
+    try {
+        if (-not $Process.HasExited) {
+            [void]$Process.WaitForExit(500)
         }
     }
     catch {
-        $messages += "taskkill failed: $($_.Exception.Message)"
         try { $Process.Kill() } catch {}
     }
 
-    try { [void]$Process.WaitForExit(2000) } catch {}
     return (($messages | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n")
 }
 
@@ -347,12 +428,66 @@ function Read-CompletedTaskText {
     param($Task)
 
     try {
-        if ($Task.Wait(500)) { return [string]$Task.Result }
+        if ($Task.Wait(100)) { return [string]$Task.Result }
     }
     catch {
         return ""
     }
     return ""
+}
+
+function Get-RemainingDeadlineMilliseconds {
+    param([Diagnostics.Stopwatch]$Stopwatch, [int64]$DeadlineMilliseconds)
+
+    $remaining = $DeadlineMilliseconds - $Stopwatch.ElapsedMilliseconds
+    if ($remaining -le 0) { return 0 }
+    if ($remaining -gt [int]::MaxValue) { return [int]::MaxValue }
+    return [int]$remaining
+}
+
+function Wait-TaskUntilDeadline {
+    param($Task, [Diagnostics.Stopwatch]$Stopwatch, [int64]$DeadlineMilliseconds)
+
+    $remaining = Get-RemainingDeadlineMilliseconds -Stopwatch $Stopwatch -DeadlineMilliseconds $DeadlineMilliseconds
+    if ($remaining -le 0) { return $false }
+    try {
+        return [bool]$Task.Wait($remaining)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Write-TimeoutResult {
+    param(
+        [System.Diagnostics.Process]$Process,
+        $StdoutTask,
+        $StderrTask,
+        [Diagnostics.Stopwatch]$Stopwatch,
+        [int]$TimeoutSeconds,
+        [AllowNull()][string]$Cwd,
+        [string]$Risk,
+        [string]$Command
+    )
+
+    $killOutput = Stop-ProcessTree -Process $Process
+    $timeoutStdout = Read-CompletedTaskText -Task $StdoutTask
+    $timeoutStderr = Read-CompletedTaskText -Task $StderrTask
+    if ($Stopwatch.IsRunning) { $Stopwatch.Stop() }
+
+    $timeoutMessage = "TIMEOUT after ${TimeoutSeconds}s"
+    if ([string]::IsNullOrEmpty($timeoutStderr)) {
+        $timeoutStderr = $timeoutMessage
+    }
+    else {
+        $timeoutStderr = $timeoutStderr.TrimEnd() + "`n" + $timeoutMessage
+    }
+    if (-not [string]::IsNullOrWhiteSpace($killOutput)) {
+        $timeoutStderr = $timeoutStderr.TrimEnd() + "`n" + $killOutput
+    }
+
+    $timeoutResult = New-BaseResult -Status "error" -ChildExitCode 124 -Stdout $timeoutStdout -Stderr $timeoutStderr -DurationMs ([int]$Stopwatch.ElapsedMilliseconds) -Classification "timeout-and-process" -TimedOut $true -TimeoutSeconds $TimeoutSeconds -Cwd $Cwd -Risk $Risk -Command $Command -Reason $timeoutMessage
+    Write-JsonResult $timeoutResult 1
 }
 
 if ([string]::IsNullOrWhiteSpace($SpecPath)) {
@@ -443,8 +578,9 @@ if (Test-SpecProperty -Spec $spec -Name "env") {
     }
 
     foreach ($prop in $envValue.PSObject.Properties) {
-        if ([string]::IsNullOrWhiteSpace($prop.Name)) {
-            Write-ErrorResult -Message "env variable names must not be empty" -Classification "unknown" -TimeoutSeconds $timeout -Cwd $cwd -Risk $risk
+        $invalidEnvNameReason = Get-InvalidEnvironmentVariableNameReason -Name $prop.Name
+        if ($invalidEnvNameReason) {
+            Write-ErrorResult -Message $invalidEnvNameReason -Classification "unknown" -TimeoutSeconds $timeout -Cwd $cwd -Risk $risk
         }
         $envValues[$prop.Name] = if ($null -eq $prop.Value) { "" } else { [string]$prop.Value }
         if ($prop.Name -ieq "PATH") { $envPathOverride = $true }
@@ -493,26 +629,17 @@ try {
     $proc = [Diagnostics.Process]::Start($psi)
     $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
     $stderrTask = $proc.StandardError.ReadToEndAsync()
+    $deadlineMs = [int64]$timeout * 1000
 
-    if (-not $proc.WaitForExit($timeout * 1000)) {
-        $killOutput = Stop-ProcessTree -Process $proc
-        $timeoutStdout = Read-CompletedTaskText -Task $stdoutTask
-        $timeoutStderr = Read-CompletedTaskText -Task $stderrTask
-        $sw.Stop()
+    $remainingForProcess = Get-RemainingDeadlineMilliseconds -Stopwatch $sw -DeadlineMilliseconds $deadlineMs
+    if ($remainingForProcess -le 0 -or -not $proc.WaitForExit($remainingForProcess)) {
+        Write-TimeoutResult -Process $proc -StdoutTask $stdoutTask -StderrTask $stderrTask -Stopwatch $sw -TimeoutSeconds $timeout -Cwd $cwd -Risk $risk -Command $command
+    }
 
-        $timeoutMessage = "TIMEOUT after ${timeout}s"
-        if ([string]::IsNullOrEmpty($timeoutStderr)) {
-            $timeoutStderr = $timeoutMessage
-        }
-        else {
-            $timeoutStderr = $timeoutStderr.TrimEnd() + "`n" + $timeoutMessage
-        }
-        if (-not [string]::IsNullOrWhiteSpace($killOutput)) {
-            $timeoutStderr = $timeoutStderr.TrimEnd() + "`n" + $killOutput
-        }
-
-        $timeoutResult = New-BaseResult -Status "error" -ChildExitCode 124 -Stdout $timeoutStdout -Stderr $timeoutStderr -DurationMs ([int]$sw.ElapsedMilliseconds) -Classification "timeout-and-process" -TimedOut $true -TimeoutSeconds $timeout -Cwd $cwd -Risk $risk -Command $command -Reason $timeoutMessage
-        Write-JsonResult $timeoutResult 1
+    $stdoutReady = Wait-TaskUntilDeadline -Task $stdoutTask -Stopwatch $sw -DeadlineMilliseconds $deadlineMs
+    $stderrReady = Wait-TaskUntilDeadline -Task $stderrTask -Stopwatch $sw -DeadlineMilliseconds $deadlineMs
+    if (-not $stdoutReady -or -not $stderrReady) {
+        Write-TimeoutResult -Process $proc -StdoutTask $stdoutTask -StderrTask $stderrTask -Stopwatch $sw -TimeoutSeconds $timeout -Cwd $cwd -Risk $risk -Command $command
     }
 
     $stdout = $stdoutTask.Result
