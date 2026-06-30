@@ -1,5 +1,7 @@
 param(
     [Parameter(Mandatory=$true)]
+    [AllowNull()]
+    [AllowEmptyString()]
     [string]$Command
 )
 
@@ -9,6 +11,19 @@ function Write-JsonResult {
     param($Value, [int]$ExitCode)
     $Value | ConvertTo-Json -Depth 8 -Compress
     exit $ExitCode
+}
+
+if ([string]::IsNullOrWhiteSpace($Command)) {
+    Write-JsonResult @{
+        status = "error"
+        command = $Command
+        found = $false
+        source = $null
+        command_type = $null
+        version = $null
+        classification = "tool-discovery"
+        reason = "Command is required"
+    } 1
 }
 
 if ($Command.IndexOfAny([char[]]"*?[]") -ge 0) {

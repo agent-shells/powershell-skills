@@ -1,5 +1,7 @@
 param(
     [Parameter(Mandatory=$true)]
+    [AllowNull()]
+    [AllowEmptyString()]
     [string]$Path,
     [switch]$MustExist
 )
@@ -12,12 +14,26 @@ function Write-JsonResult {
     exit $ExitCode
 }
 
-$exists = Test-Path -LiteralPath $Path
+$exists = $false
 $fullPath = $null
 $parent = $null
 $unsafeReason = $null
 
+if ([string]::IsNullOrWhiteSpace($Path)) {
+    Write-JsonResult @{
+        status = "error"
+        input_path = $Path
+        exists = $false
+        full_path = $null
+        parent = $null
+        use_literal_path = $true
+        classification = "path-handling"
+        unsafe_reason = "Path is required"
+    } 1
+}
+
 try {
+    $exists = Test-Path -LiteralPath $Path
     if ($exists) {
         $fullPath = (Resolve-Path -LiteralPath $Path).Path
     } else {
@@ -29,7 +45,7 @@ catch {
     $unsafeReason = $_.Exception.Message
 }
 
-if ($MustExist -and -not $exists) {
+if (-not $unsafeReason -and $MustExist -and -not $exists) {
     Write-JsonResult @{
         status = "error"
         input_path = $Path
