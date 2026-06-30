@@ -203,6 +203,9 @@ try {
     Assert-True ($stdoutFailureResult.Data.exit_code -eq 3) "Expected child exit_code=3"
     Assert-True ($stdoutFailureResult.Data.classification -eq "path-handling") "Expected classification from stdout fallback"
 
+    # Wall-clock includes PowerShell startup, WMI, and taskkill overhead; JSON duration remains the strict runner bound.
+    $timeoutWallClockLimitMs = 5500
+
     $timeoutPath = Join-Path $workspace "timeout.json"
     $nestedSleepCommand = "Start-Process -FilePath powershell.exe -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 8') -NoNewWindow -Wait"
     Write-JsonSpec @{ command = "powershell.exe"; args = @("-NoProfile", "-Command", $nestedSleepCommand); cwd = $workspace; timeout_seconds = 1 } $timeoutPath
@@ -212,11 +215,11 @@ try {
     Assert-True ($timeoutResult.ExitCode -eq 1) "timeout command should exit 1"
     Assert-True ($timeoutResult.Data.exit_code -eq 124) "Expected timeout exit_code=124"
     Assert-True ($timeoutResult.Data.classification -eq "timeout-and-process") "Expected timeout-and-process classification"
-    Assert-True ($timeoutWatch.ElapsedMilliseconds -lt 4000) "timeout should not wait for nested 8s child sleep; elapsed=$($timeoutWatch.ElapsedMilliseconds)ms"
+    Assert-True ($timeoutWatch.ElapsedMilliseconds -lt $timeoutWallClockLimitMs) "timeout should not wait for nested 8s child sleep; elapsed=$($timeoutWatch.ElapsedMilliseconds)ms"
     Assert-True ($timeoutResult.Data.duration_ms -lt 4000) "timeout duration_ms should include bounded cleanup; duration_ms=$($timeoutResult.Data.duration_ms)"
 
     $earlyExitTimeoutPath = Join-Path $workspace "early-exit-timeout.json"
-    $earlyExitCommand = "Start-Process -FilePath powershell.exe -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 6') -NoNewWindow"
+    $earlyExitCommand = "Start-Process -FilePath powershell.exe -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 8') -NoNewWindow"
     Write-JsonSpec @{ command = "powershell.exe"; args = @("-NoProfile", "-Command", $earlyExitCommand); cwd = $workspace; timeout_seconds = 1 } $earlyExitTimeoutPath
     $earlyExitWatch = [Diagnostics.Stopwatch]::StartNew()
     $earlyExitResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $earlyExitTimeoutPath)
@@ -225,7 +228,7 @@ try {
     Assert-True ($earlyExitResult.Data.exit_code -eq 124) "Expected early-exit timeout exit_code=124"
     Assert-True ($earlyExitResult.Data.timed_out -eq $true) "Expected early-exit timeout timed_out=true"
     Assert-Equal $earlyExitResult.Data.classification "timeout-and-process" "Expected early-exit timeout classification"
-    Assert-True ($earlyExitWatch.ElapsedMilliseconds -lt 4000) "early-exit timeout should not wait for child sleep; elapsed=$($earlyExitWatch.ElapsedMilliseconds)ms"
+    Assert-True ($earlyExitWatch.ElapsedMilliseconds -lt $timeoutWallClockLimitMs) "early-exit timeout should not wait for child sleep; elapsed=$($earlyExitWatch.ElapsedMilliseconds)ms"
     Assert-True ($earlyExitResult.Data.duration_ms -lt 4000) "early-exit timeout duration_ms should be bounded; duration_ms=$($earlyExitResult.Data.duration_ms)"
 
     $argvEchoScript = Join-Path $workspace "echo-argv.ps1"
