@@ -1,0 +1,6 @@
+interface:
+  display_name: "PowerShell Command Runner"
+  short_description: "Safer Windows and PowerShell command execution for Codex."
+  default_prompt: "Use $powershell-command-runner when working in Windows or PowerShell shell environments."
+policy:
+  allow_implicit_invocation: true
