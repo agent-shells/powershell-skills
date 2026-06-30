@@ -12,5 +12,5 @@
 - root_cause: Path argument was not quoted and exact interpretation was not requested.
 - safe_pattern: Use quoted paths and `-LiteralPath` for exact local paths.
 - linked_pattern: `core/pattern-catalog/path-handling.md`
-- regression_test: `core/tests/run-smoke.ps1`
-- status: tested
+- regression_test: planned: `core/tests/run-smoke.ps1`
+- status: classified

@@ -10,7 +10,7 @@
 - bad_command: `rg MARKER C:\Projects\example`
 - error_excerpt: `The term 'rg' is not recognized`
 - root_cause: Tool availability was not checked before execution.
-- safe_pattern: Run `Get-Command rg` or `Test-AgentCommand.ps1` before relying on `rg`.
+- safe_pattern: Run `Get-Command rg` before relying on `rg`; after helpers exist, use `Test-AgentCommand.ps1`.
 - linked_pattern: `core/pattern-catalog/tool-discovery.md`
-- regression_test: `core/tests/run-smoke.ps1`
-- status: tested
+- regression_test: planned: `core/tests/run-smoke.ps1`
+- status: classified

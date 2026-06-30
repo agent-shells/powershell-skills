@@ -12,5 +12,5 @@
 - root_cause: Destructive operation ran without validating the resolved absolute path.
 - safe_pattern: Resolve target, verify it is inside the intended workspace, then use `-LiteralPath`.
 - linked_pattern: `core/pattern-catalog/file-ops-safety.md`
-- regression_test: `core/tests/run-smoke.ps1`
-- status: tested
+- regression_test: planned: `core/tests/run-smoke.ps1`
+- status: classified

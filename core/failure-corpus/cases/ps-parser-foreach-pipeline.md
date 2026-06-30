@@ -12,5 +12,5 @@
 - root_cause: PowerShell parser boundary between a statement block and a pipeline.
 - safe_pattern: Assign statement output to a variable, then pipe the variable.
 - linked_pattern: `core/pattern-catalog/powershell-parser.md`
-- regression_test: `core/tests/run-smoke.ps1`
-- status: tested
+- regression_test: planned: `core/tests/run-smoke.ps1`
+- status: classified
