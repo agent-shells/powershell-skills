@@ -9,6 +9,13 @@ function Assert-True {
     if (-not $Condition) { throw $Message }
 }
 
+function Assert-Equal {
+    param($Actual, $Expected, [string]$Message)
+    if ($Actual -ne $Expected) {
+        throw "$Message Expected=[$Expected] Actual=[$Actual]"
+    }
+}
+
 function Invoke-ScriptJson {
     param(
         [string]$ScriptName,
@@ -98,6 +105,33 @@ try {
     Assert-True ($destructiveResult.ExitCode -eq 1) "destructive spec should be blocked"
     Assert-True ($destructiveResult.Data.classification -eq "destructive-op-risk") "Expected destructive-op-risk classification"
 
+    $normalizedDestructiveSpecPath = Join-Path $workspace "normalized-destructive-spec.json"
+    Write-JsonSpec @{
+        command = "powershell.exe"
+        args = @("-NoProfile", "-Command", "Write-Output should-not-run")
+        cwd = $workspace
+        timeout_seconds = 15
+        env = @{}
+        risk = " destructive "
+    } $normalizedDestructiveSpecPath
+    $normalizedDestructiveResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $normalizedDestructiveSpecPath)
+    Assert-True ($normalizedDestructiveResult.ExitCode -eq 1) "trimmed destructive risk should be blocked"
+    Assert-Equal $normalizedDestructiveResult.Data.classification "destructive-op-risk" "Expected destructive-op-risk classification for normalized risk"
+    Assert-Equal $normalizedDestructiveResult.Data.risk "destructive" "Expected normalized risk in result"
+
+    $invalidRiskSpecPath = Join-Path $workspace "invalid-risk-spec.json"
+    Write-JsonSpec @{
+        command = "powershell.exe"
+        args = @("-NoProfile", "-Command", "Write-Output should-not-run")
+        cwd = $workspace
+        timeout_seconds = 15
+        env = @{}
+        risk = "surprising"
+    } $invalidRiskSpecPath
+    $invalidRiskResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $invalidRiskSpecPath)
+    Assert-True ($invalidRiskResult.ExitCode -eq 1) "invalid risk should exit 1"
+    Assert-Equal $invalidRiskResult.Data.classification "unknown" "Expected unknown classification for invalid risk"
+
     $omittedSpecResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1"
     Assert-True ($omittedSpecResult.ExitCode -eq 1) "omitted SpecPath should exit 1"
     Assert-True ($omittedSpecResult.Data.classification -eq "path-handling") "Expected path-handling for omitted SpecPath"
@@ -130,11 +164,30 @@ try {
     Assert-True ($aliasOnlyResult.ExitCode -eq 1) "alias-only command should exit 1"
     Assert-True ($aliasOnlyResult.Data.classification -eq "tool-discovery") "Expected tool-discovery for alias-only command"
 
+    $cmdletCommandPath = Join-Path $workspace "cmdlet-command.json"
+    Write-JsonSpec @{ command = "Get-ChildItem"; args = @(); cwd = $workspace } $cmdletCommandPath
+    $cmdletCommandResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $cmdletCommandPath)
+    Assert-True ($cmdletCommandResult.ExitCode -eq 1) "cmdlet command should exit 1"
+    Assert-Equal $cmdletCommandResult.Data.classification "tool-discovery" "Expected tool-discovery for cmdlet command"
+    Assert-True ($cmdletCommandResult.Data.stderr -match "Only Application commands are supported") "Expected Application-only reason for cmdlet command"
+
     $badTimeoutPath = Join-Path $workspace "bad-timeout.json"
     Write-JsonSpec @{ command = "powershell.exe"; args = @("-NoProfile", "-Command", "Write-Output should-not-run"); cwd = $workspace; timeout_seconds = 0 } $badTimeoutPath
     $badTimeoutResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $badTimeoutPath)
     Assert-True ($badTimeoutResult.ExitCode -eq 1) "invalid timeout should exit 1"
     Assert-True ($badTimeoutResult.Data.classification -eq "timeout-and-process") "Expected timeout-and-process for invalid timeout"
+
+    $invalidEnvShapePath = Join-Path $workspace "invalid-env-shape.json"
+    Write-JsonSpec @{ command = "powershell.exe"; args = @("-NoProfile", "-Command", "Write-Output should-not-run"); cwd = $workspace; timeout_seconds = 15; env = "abc" } $invalidEnvShapePath
+    $invalidEnvShapeResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $invalidEnvShapePath)
+    Assert-True ($invalidEnvShapeResult.ExitCode -eq 1) "invalid env shape should exit 1"
+    Assert-Equal $invalidEnvShapeResult.Data.classification "unknown" "Expected unknown classification for invalid env shape"
+
+    $emptyEnvNamePath = Join-Path $workspace "empty-env-name.json"
+    Set-Content -LiteralPath $emptyEnvNamePath -Value '{"command":"powershell.exe","args":["-NoProfile","-Command","Write-Output should-not-run"],"cwd":"","timeout_seconds":15,"env":{"":"value"}}'.Replace('"cwd":""', '"cwd":"' + ($workspace -replace '\\', '\\') + '"') -Encoding UTF8
+    $emptyEnvNameResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $emptyEnvNamePath)
+    Assert-True ($emptyEnvNameResult.ExitCode -eq 1) "empty env variable name should exit 1"
+    Assert-Equal $emptyEnvNameResult.Data.classification "unknown" "Expected unknown classification for empty env variable name"
 
     $stdoutFailurePath = Join-Path $workspace "stdout-failure.json"
     Write-JsonSpec @{ command = "cmd.exe"; args = @("/c", "echo Cannot find path smoke& exit /b 3"); cwd = $workspace; timeout_seconds = 15 } $stdoutFailurePath
@@ -144,11 +197,56 @@ try {
     Assert-True ($stdoutFailureResult.Data.classification -eq "path-handling") "Expected classification from stdout fallback"
 
     $timeoutPath = Join-Path $workspace "timeout.json"
-    Write-JsonSpec @{ command = "powershell.exe"; args = @("-NoProfile", "-Command", "Start-Sleep -Seconds 5"); cwd = $workspace; timeout_seconds = 1 } $timeoutPath
+    $nestedSleepCommand = "Start-Process -FilePath powershell.exe -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 8') -NoNewWindow -Wait"
+    Write-JsonSpec @{ command = "powershell.exe"; args = @("-NoProfile", "-Command", $nestedSleepCommand); cwd = $workspace; timeout_seconds = 1 } $timeoutPath
+    $timeoutWatch = [Diagnostics.Stopwatch]::StartNew()
     $timeoutResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $timeoutPath)
+    $timeoutWatch.Stop()
     Assert-True ($timeoutResult.ExitCode -eq 1) "timeout command should exit 1"
     Assert-True ($timeoutResult.Data.exit_code -eq 124) "Expected timeout exit_code=124"
     Assert-True ($timeoutResult.Data.classification -eq "timeout-and-process") "Expected timeout-and-process classification"
+    Assert-True ($timeoutWatch.ElapsedMilliseconds -lt 4000) "timeout should not wait for nested 8s child sleep; elapsed=$($timeoutWatch.ElapsedMilliseconds)ms"
+    Assert-True ($timeoutResult.Data.duration_ms -lt 4000) "timeout duration_ms should include bounded cleanup; duration_ms=$($timeoutResult.Data.duration_ms)"
+
+    $argvEchoScript = Join-Path $workspace "echo-argv.ps1"
+    Set-Content -LiteralPath $argvEchoScript -Value '$args | ConvertTo-Json -Compress' -Encoding UTF8
+    $argvSpecPath = Join-Path $workspace "argv-roundtrip.json"
+    $expectedArgv = @("", "space arg", 'a"b', 'json:{"x":"y z"}', "C:\path with space\")
+    Write-JsonSpec @{
+        command = "powershell.exe"
+        args = @("-NoProfile", "-File", $argvEchoScript) + $expectedArgv
+        cwd = $workspace
+        timeout_seconds = 15
+        env = @{}
+        risk = "normal"
+    } $argvSpecPath
+    $argvResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $argvSpecPath)
+    Assert-True ($argvResult.ExitCode -eq 0) "argv round-trip command should exit 0"
+    $actualArgvJson = $argvResult.Data.stdout | ConvertFrom-Json
+    $actualArgv = @()
+    foreach ($actualArgvItem in $actualArgvJson) { $actualArgv += [string]$actualArgvItem }
+    Assert-Equal $actualArgv.Count $expectedArgv.Count "Expected argv item count to round-trip"
+    for ($i = 0; $i -lt $expectedArgv.Count; $i++) {
+        Assert-Equal $actualArgv[$i] $expectedArgv[$i] "Expected argv[$i] to round-trip"
+    }
+
+    $cwdCommandPath = Join-Path $workspace "hello-agent-review.cmd"
+    Set-Content -LiteralPath $cwdCommandPath -Value @("@echo off", "echo cwd-relative-ok") -Encoding ASCII
+    $cwdRelativeSpecPath = Join-Path $workspace "cwd-relative.json"
+    Write-JsonSpec @{ command = ".\hello-agent-review.cmd"; args = @(); cwd = $workspace; timeout_seconds = 15; env = @{} } $cwdRelativeSpecPath
+    $cwdRelativeResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $cwdRelativeSpecPath)
+    Assert-True ($cwdRelativeResult.ExitCode -eq 0) "cwd-relative Application command should exit 0"
+    Assert-True ($cwdRelativeResult.Data.stdout -match "cwd-relative-ok") "Expected cwd-relative command output"
+
+    $pathToolDir = Join-Path $workspace "path-tools"
+    New-Item -ItemType Directory -Path $pathToolDir -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $pathToolDir "path-only-agent.cmd") -Value @("@echo off", "echo path-only") -Encoding ASCII
+    $pathOverrideSpecPath = Join-Path $workspace "path-override.json"
+    Write-JsonSpec @{ command = "path-only-agent.cmd"; args = @(); cwd = $workspace; timeout_seconds = 15; env = @{ PATH = "$pathToolDir;$env:PATH" } } $pathOverrideSpecPath
+    $pathOverrideResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $pathOverrideSpecPath)
+    Assert-True ($pathOverrideResult.ExitCode -eq 1) "PATH override discovery should be explicit in V0.1"
+    Assert-Equal $pathOverrideResult.Data.classification "tool-discovery" "Expected tool-discovery for PATH override command discovery"
+    Assert-True ($pathOverrideResult.Data.stderr -match "PATH") "Expected PATH override rejection reason"
 
     Write-Output "[OK] smoke tests passed"
 }
