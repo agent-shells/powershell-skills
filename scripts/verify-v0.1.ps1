@@ -26,6 +26,199 @@ function Assert-RequiredPath {
     Assert-True (Test-Path -LiteralPath $path -PathType $PathType) "Missing required $PathType path: $RelativePath"
 }
 
+function ConvertTo-WindowsArgument {
+    param([AllowNull()][string]$Value)
+
+    if ($null -eq $Value) { $Value = "" }
+    if ($Value.Length -eq 0) { return '""' }
+    if ($Value -notmatch '[\s"]') { return $Value }
+
+    $builder = New-Object System.Text.StringBuilder
+    [void]$builder.Append('"')
+    $backslashCount = 0
+
+    foreach ($ch in $Value.ToCharArray()) {
+        if ($ch -eq '\') {
+            $backslashCount++
+            continue
+        }
+
+        if ($ch -eq '"') {
+            if ($backslashCount -gt 0) {
+                [void]$builder.Append("\" * ($backslashCount * 2))
+                $backslashCount = 0
+            }
+            [void]$builder.Append('\"')
+            continue
+        }
+
+        if ($backslashCount -gt 0) {
+            [void]$builder.Append("\" * $backslashCount)
+            $backslashCount = 0
+        }
+        [void]$builder.Append($ch)
+    }
+
+    if ($backslashCount -gt 0) {
+        [void]$builder.Append("\" * ($backslashCount * 2))
+    }
+    [void]$builder.Append('"')
+    return $builder.ToString()
+}
+
+function Join-ProcessArguments {
+    param([string[]]$Arguments)
+
+    $quoted = @()
+    foreach ($argument in $Arguments) {
+        $quoted += ConvertTo-WindowsArgument -Value $argument
+    }
+    return ($quoted -join " ")
+}
+
+function Invoke-ProcessCapture {
+    param(
+        [Parameter(Mandatory = $true)][string]$FileName,
+        [string[]]$Arguments = @(),
+        [AllowNull()][string]$WorkingDirectory = $null
+    )
+
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $FileName
+    $startInfo.Arguments = Join-ProcessArguments -Arguments $Arguments
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+        $startInfo.WorkingDirectory = $WorkingDirectory
+    }
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $process.WaitForExit()
+    $stdout = $stdoutTask.Result
+    $stderr = $stderrTask.Result
+    $exitCode = $process.ExitCode
+    $process.Dispose()
+
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Stdout = $stdout
+        Stderr = $stderr
+    }
+}
+
+function Normalize-PathForCompare {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $normalized = $Path.Trim()
+    if ($normalized.StartsWith("\??\")) {
+        $normalized = $normalized.Substring(4)
+    }
+    if ($normalized.StartsWith("\\?\")) {
+        $normalized = $normalized.Substring(4)
+    }
+    return [IO.Path]::GetFullPath($normalized).TrimEnd('\')
+}
+
+function Get-ReparsePointTarget {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $item = Get-Item -LiteralPath $Path -Force
+    $targetProperty = $item.PSObject.Properties["Target"]
+    if ($targetProperty -and $targetProperty.Value) {
+        $targetValues = @($targetProperty.Value)
+        if ($targetValues.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$targetValues[0])) {
+            return [string]$targetValues[0]
+        }
+    }
+
+    $fsutilResult = Invoke-ProcessCapture -FileName "fsutil.exe" -Arguments @("reparsepoint", "query", $Path)
+    if ($fsutilResult.ExitCode -ne 0) {
+        throw "Unable to query reparse point target for $Path. stdout=[$($fsutilResult.Stdout)] stderr=[$($fsutilResult.Stderr)]"
+    }
+
+    $fsutilText = ($fsutilResult.Stdout + "`n" + $fsutilResult.Stderr)
+    $printNameMatch = [regex]::Match($fsutilText, "(?m)^\s*Print Name:\s*(.+?)\s*$")
+    if ($printNameMatch.Success) {
+        return $printNameMatch.Groups[1].Value
+    }
+
+    $substituteNameMatch = [regex]::Match($fsutilText, "(?m)^\s*Substitute Name:\s*(.+?)\s*$")
+    if ($substituteNameMatch.Success) {
+        return $substituteNameMatch.Groups[1].Value
+    }
+
+    throw "Unable to parse reparse point target for $Path. Output: $fsutilText"
+}
+
+function Invoke-InstallJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallScript,
+        [Parameter(Mandatory = $true)][string]$WorkingDirectory
+    )
+
+    $result = Invoke-ProcessCapture -FileName "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $InstallScript) -WorkingDirectory $WorkingDirectory
+    if ($result.ExitCode -ne 0) {
+        throw "Install script failed with exit code $($result.ExitCode).`nSTDOUT:`n$($result.Stdout)`nSTDERR:`n$($result.Stderr)"
+    }
+
+    $jsonText = $result.Stdout.Trim()
+    if ([string]::IsNullOrWhiteSpace($jsonText)) {
+        throw "Install script produced no JSON output"
+    }
+
+    try {
+        $data = $jsonText | ConvertFrom-Json
+    }
+    catch {
+        throw "Install script produced invalid JSON: $jsonText"
+    }
+
+    Assert-True ($data.status -eq "success") "Install script JSON status was not success: $jsonText"
+    return $data
+}
+
+function Test-IsolatedInstall {
+    $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("powershell-skills-verify-" + [guid]::NewGuid().ToString("N"))
+    $tempTarget = Join-Path $tempRoot ".agents\skills\powershell-command-runner"
+
+    try {
+        New-Item -ItemType Directory -Path (Join-Path $tempRoot "scripts") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $tempRoot "adapters\codex") -Force | Out-Null
+
+        Copy-Item -LiteralPath (Join-RepoPath "scripts\install-codex-local.ps1") -Destination (Join-Path $tempRoot "scripts\install-codex-local.ps1")
+        Copy-Item -LiteralPath (Join-RepoPath "adapters\codex\powershell-command-runner") -Destination (Join-Path $tempRoot "adapters\codex\powershell-command-runner") -Recurse
+        Copy-Item -LiteralPath (Join-RepoPath "core") -Destination (Join-Path $tempRoot "core") -Recurse
+
+        $installScript = Join-Path $tempRoot "scripts\install-codex-local.ps1"
+        [void](Invoke-InstallJson -InstallScript $installScript -WorkingDirectory $tempRoot)
+        [void](Invoke-InstallJson -InstallScript $installScript -WorkingDirectory $tempRoot)
+
+        Assert-True (Test-Path -LiteralPath $tempTarget -PathType Container) "Temp repo install target was not created: $tempTarget"
+        $targetItem = Get-Item -LiteralPath $tempTarget -Force
+        Assert-True (($targetItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) "Temp repo install target is not a reparse point: $tempTarget"
+        Assert-True (Test-Path -LiteralPath (Join-Path $tempTarget "SKILL.md") -PathType Leaf) "Temp repo install target SKILL.md does not resolve: $tempTarget"
+
+        $actualTarget = Normalize-PathForCompare -Path (Get-ReparsePointTarget -Path $tempTarget)
+        $expectedTarget = Normalize-PathForCompare -Path (Resolve-Path -LiteralPath (Join-Path $tempRoot "adapters\codex\powershell-command-runner")).ProviderPath
+        Assert-True ($actualTarget.Equals($expectedTarget, [StringComparison]::OrdinalIgnoreCase)) "Temp repo install target mismatch. Expected=[$expectedTarget] Actual=[$actualTarget]"
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempTarget) {
+            $tempTargetItem = Get-Item -LiteralPath $tempTarget -Force
+            if (($tempTargetItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                [IO.Directory]::Delete($tempTarget)
+            }
+        }
+        if (Test-Path -LiteralPath $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
+    }
+}
+
 $requiredFiles = @(
     "core\execution-contract.md",
     "core\scripts\Test-AgentCommand.ps1",
@@ -55,45 +248,20 @@ $failureCaseCount = @(Get-ChildItem -LiteralPath $failureCasesPath -File).Count
 Assert-True ($failureCaseCount -ge 5) "Expected at least 5 failure cases; found $failureCaseCount"
 
 $smokePath = Join-RepoPath "core\tests\run-smoke.ps1"
-$smokeCommand = "& { param([string]`$SmokePath) [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'High'; & `$SmokePath }"
-$maxSmokeAttempts = 4
-$smokeOutput = $null
-$smokeExitCode = 1
-$retryableSmokePatterns = @(
-    "timeout should not wait for nested 8s child sleep",
-    "early-exit timeout should not wait for child sleep"
-)
-
-for ($attempt = 1; $attempt -le $maxSmokeAttempts; $attempt++) {
-    $smokeOutput = & powershell.exe -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command $smokeCommand $smokePath 2>&1
-    $smokeExitCode = $LASTEXITCODE
-    if ($smokeExitCode -eq 0) {
-        break
-    }
-
-    $smokeText = ($smokeOutput | Out-String).Trim()
-    $retryableSmokeFailure = $false
-    foreach ($retryableSmokePattern in $retryableSmokePatterns) {
-        if ($smokeText -match [regex]::Escape($retryableSmokePattern)) {
-            $retryableSmokeFailure = $true
-            break
-        }
-    }
-
-    if (-not $retryableSmokeFailure -or $attempt -eq $maxSmokeAttempts) {
-        throw "Smoke tests failed with exit code $smokeExitCode after $attempt attempt(s). $smokeText"
-    }
-
-    Start-Sleep -Milliseconds 250
+$smokeResult = Invoke-ProcessCapture -FileName "powershell.exe" -Arguments @("-NoLogo", "-NonInteractive", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $smokePath) -WorkingDirectory $RepoRoot
+if ($smokeResult.ExitCode -ne 0) {
+    throw "Smoke tests failed with exit code $($smokeResult.ExitCode).`nSTDOUT:`n$($smokeResult.Stdout)`nSTDERR:`n$($smokeResult.Stderr)"
 }
-Assert-True ((($smokeOutput | Out-String).Trim()) -match "\[OK\] smoke tests passed") "Smoke tests did not report success"
+Assert-True ($smokeResult.Stdout -match "\[OK\] smoke tests passed") "Smoke tests exited 0 but did not report success. stdout=[$($smokeResult.Stdout)] stderr=[$($smokeResult.Stderr)]"
 
 $adapterDir = Join-RepoPath "adapters\codex\powershell-command-runner"
 $skillPath = Join-Path $adapterDir "SKILL.md"
 $skillText = Get-Content -LiteralPath $skillPath -Raw
-Assert-True ($skillText -match "(?m)^---\s*$") "Adapter SKILL.md is missing front matter delimiters"
-Assert-True ($skillText -match "(?m)^name:\s*powershell-command-runner\s*$") "Adapter SKILL.md is missing expected skill name"
-Assert-True ($skillText -match "(?m)^description:\s*.+") "Adapter SKILL.md is missing description metadata"
+$frontMatterMatch = [regex]::Match($skillText, "\A---\r?\n(?<frontmatter>[\s\S]*?)\r?\n---(?:\r?\n|\z)")
+Assert-True $frontMatterMatch.Success "Adapter SKILL.md must begin with front matter delimited by ---"
+$frontMatter = $frontMatterMatch.Groups["frontmatter"].Value
+Assert-True ($frontMatter -match "(?m)^name:\s*powershell-command-runner\s*$") "Adapter SKILL.md front matter is missing expected skill name"
+Assert-True ($frontMatter -match "(?m)^description:\s*\S") "Adapter SKILL.md front matter is missing description metadata"
 Assert-True ($skillText.Contains("../../../core")) "Adapter SKILL.md is missing core relative references"
 
 $openAiPath = Join-Path $adapterDir "agents\openai.yaml"
@@ -113,11 +281,16 @@ foreach ($match in $relativeReferenceMatches) {
     Assert-True (Test-Path -LiteralPath $resolvedReference) "Adapter relative reference does not resolve: $($match.Value)"
 }
 
+Test-IsolatedInstall
+
 $localSkillPath = Join-RepoPath ".agents\skills\powershell-command-runner"
 if (Test-Path -LiteralPath $localSkillPath) {
     $localSkillItem = Get-Item -LiteralPath $localSkillPath -Force
     Assert-True (($localSkillItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) "Repo-local install exists but is not a reparse point: $localSkillPath"
     Assert-True (Test-Path -LiteralPath (Join-Path $localSkillPath "SKILL.md") -PathType Leaf) "Repo-local install SKILL.md does not resolve: $localSkillPath"
+    $localTarget = Normalize-PathForCompare -Path (Get-ReparsePointTarget -Path $localSkillPath)
+    $expectedLocalTarget = Normalize-PathForCompare -Path $adapterDir
+    Assert-True ($localTarget.Equals($expectedLocalTarget, [StringComparison]::OrdinalIgnoreCase)) "Repo-local install target mismatch. Expected=[$expectedLocalTarget] Actual=[$localTarget]"
 }
 
 Write-Output "[OK] V0.1 verification passed"
