@@ -20,7 +20,9 @@ Use this contract before Windows shell work.
 
 ## Helper Routing
 
-- Command missing or uncertain: run `core/scripts/Test-AgentCommand.ps1`.
-- Path contains spaces, non-ASCII characters, or exact matching matters: run `core/scripts/Resolve-AgentPath.ps1`.
-- Repeated failure: run `core/scripts/Classify-AgentFailure.ps1`.
-- Structured execution needed: run `core/scripts/Invoke-AgentCommand.ps1`.
+These are the intended V0.1 helper routes. During incremental development, if a helper script is not present yet, use the corresponding pattern file instead.
+
+- Command missing or uncertain: run `core/scripts/Test-AgentCommand.ps1`; if unavailable, use `core/pattern-catalog/tool-discovery.md`.
+- Path contains spaces, non-ASCII characters, or exact matching matters: run `core/scripts/Resolve-AgentPath.ps1`; if unavailable, use `core/pattern-catalog/path-handling.md`.
+- Repeated failure: run `core/scripts/Classify-AgentFailure.ps1`; if unavailable, use `core/pattern-catalog/failure-retry.md`.
+- Structured execution needed: run `core/scripts/Invoke-AgentCommand.ps1`; if unavailable, use the smallest matching pattern file in `core/pattern-catalog/`.
