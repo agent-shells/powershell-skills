@@ -28,6 +28,30 @@ real failure -> minimized case -> taxonomy -> pattern or helper -> regression te
 
 Cases may accumulate indefinitely. The active skill instructions should stay small and route the agent to the smallest relevant pattern or script.
 
+## Acceptance Criteria
+
+V0.1 is acceptable only if it can be installed, discovered, and verified in Codex on Windows.
+
+Required outcomes:
+
+- Codex can discover the Codex adapter skill without the human explicitly naming PowerShell.
+- The skill description clearly targets Windows, PowerShell, shell command execution, file inspection, external CLI invocation, script writing, and command failure debugging.
+- Normal low-risk shell commands keep low overhead and do not require helper scripts by default.
+- High-risk commands have a documented route to a pattern or helper script.
+- Destructive filesystem operations require explicit target validation and exact path handling.
+- Repeated command failures route to failure classification instead of repeating the same command shape.
+- Helper scripts can be run directly on Windows PowerShell 5.1 where practical.
+- At least one smoke test passes for each initial helper script.
+- At least five sanitized failure cases exist and link to taxonomy categories.
+- Tests cover paths with spaces, non-ASCII paths, UTF-8 output, missing command discovery, and one parser-boundary failure.
+
+Measured signals:
+
+- Agent retry count should decrease on covered regression tasks.
+- Parser-boundary and quoting failures should be classified rather than retried blindly.
+- Destructive operations should be blocked or marked unsafe until path validation succeeds.
+- Chinese and space-containing paths should be handled in smoke tests.
+
 ## Architecture
 
 ```text
@@ -106,6 +130,49 @@ Scripts handle deterministic and fragile work that agents frequently rewrite inc
 
 Scripts should emit JSON where practical so agents can consume results reliably.
 
+### Structured Command Spec
+
+`Invoke-AgentCommand.ps1` should prefer a structured command spec over a large arbitrary shell string.
+
+Initial JSON input shape:
+
+```json
+{
+  "command": "git",
+  "args": ["status", "--short"],
+  "cwd": "C:\\Users\\example\\project",
+  "timeout_seconds": 30,
+  "env": {
+    "PYTHONIOENCODING": "utf-8"
+  },
+  "risk": "normal"
+}
+```
+
+Fields:
+
+- `command`: executable or PowerShell command name. Required.
+- `args`: argument array. Default: empty array.
+- `cwd`: working directory. Optional. When provided, validate it before execution.
+- `timeout_seconds`: positive integer timeout. Default: 30.
+- `env`: environment overrides for the child process. Default: empty object.
+- `risk`: one of `normal`, `high`, `destructive`, or `diagnostic`.
+
+Initial JSON output shape:
+
+```json
+{
+  "status": "success",
+  "exit_code": 0,
+  "stdout": "",
+  "stderr": "",
+  "duration_ms": 123,
+  "classification": null
+}
+```
+
+Failure output should use `status: "error"` and include `classification` when a known failure category is detected.
+
 ### Failure Corpus
 
 The corpus is the memory of the project, but it is not loaded by default into agent context.
@@ -141,6 +208,19 @@ The Claude Code adapter is a later layer. It may include hooks that block or rew
 
 The generic adapter should track the open agent skills shape and avoid runtime-specific metadata.
 
+### V0.1 Install And Verify Flow
+
+The first install path is local Codex discovery:
+
+1. Create the Codex adapter skill under `adapters/codex/powershell-command-runner/`.
+2. Symlink or copy that skill folder into a Codex-discoverable location during local validation.
+3. Restart Codex only if automatic skill discovery does not pick up the new skill.
+4. Verify discovery by checking that the skill appears in the available skills list or can be explicitly invoked.
+5. Run helper script smoke tests from the repository root.
+6. Run one agent-facing prompt test that asks for a Windows file or shell task without mentioning PowerShell.
+
+V0.1 should document the exact local install command once the folder layout exists.
+
 ## Execution Flow
 
 1. Classify command risk:
@@ -161,7 +241,7 @@ Do not add a new rule for every new failure.
 Use this promotion path:
 
 ```text
-case -> minimized case -> linked taxonomy category -> regression test -> pattern/script update if justified
+raw -> sanitized -> minimized -> classified -> tested -> promoted or rejected -> deprecated
 ```
 
 A case can be promoted only if it satisfies:
@@ -172,12 +252,25 @@ A case can be promoted only if it satisfies:
 - general enough to affect more than one task
 - testable without private state
 
+Case states:
+
+- `raw`: captured from a real session and not safe to commit.
+- `sanitized`: secrets, private paths, private repo names, and usernames removed.
+- `minimized`: reduced to the smallest command and environment that reproduces the issue.
+- `classified`: assigned to one taxonomy category and optionally linked to a pattern.
+- `tested`: covered by a regression test or smoke test.
+- `promoted`: changed a pattern, script, or adapter instruction.
+- `rejected`: too specific, unreproducible, unsafe to share, or already covered.
+- `deprecated`: superseded by a runtime change, script change, or better pattern.
+
 Run periodic compression:
 
 - merge near-duplicate cases
 - fold several similar cases into one pattern
 - move stale patterns to `deprecated`
 - keep `SKILL.md` concise
+
+Compression should happen before major releases and whenever a pattern catalog file becomes hard to scan.
 
 ## Taxonomy
 
@@ -195,6 +288,23 @@ Initial categories:
 - `failure-retry`
 
 This taxonomy is allowed to evolve, but changes should be deliberate because it anchors the corpus, patterns, and tests.
+
+## Safety Model
+
+This project helps agents execute shell commands, so safety must be explicit.
+
+Rules:
+
+- Do not design helper scripts to bypass Codex, Claude Code, or host runtime permission models.
+- Do not encourage agents to pass large arbitrary command strings when structured command specs are practical.
+- Treat recursive delete, recursive move, broad overwrite, archive extraction, and commands affecting paths outside the workspace as high risk or destructive.
+- Require `Test-Path`, resolved absolute target paths, and exact path handling before destructive filesystem operations.
+- Prefer `-LiteralPath` for exact local paths and avoid wildcard expansion unless the pattern is intentional.
+- Keep failure corpus entries sanitized before commit.
+- Do not store secrets, tokens, private URLs, private usernames, raw home paths, or proprietary file contents in test cases.
+- When a command fails because of permission, lock, antivirus, execution policy, or host sandboxing, classify it rather than trying increasingly broad workarounds.
+
+Safety and flow must stay balanced: normal commands should stay lightweight, but high-risk commands should slow down for validation.
 
 ## Testing
 
@@ -221,6 +331,19 @@ Useful metrics:
 - destructive operations blocked until path validation succeeds
 - Chinese and space-containing paths handled correctly
 
+Initial test matrix:
+
+```text
+PowerShell: Windows PowerShell 5.1, PowerShell 7 when available
+Paths: simple path, path with spaces, non-ASCII path, deep path
+Commands: built-in cmdlet, external executable present, external executable missing
+Encoding: ASCII output, UTF-8 output, Chinese output
+Risk: normal, high-risk file operation, destructive file operation
+Failure: parser-boundary, quoting, missing tool, bad path, timeout
+```
+
+V0.1 does not need exhaustive cross-product testing. It needs representative smoke tests in each row above.
+
 ## Competitor Baseline
 
 `windows-agent-guardrails` is the direct baseline. It validates the problem and provides a useful static guardrail shape, but it does not provide the full target experience:
@@ -232,6 +355,18 @@ Useful metrics:
 - no hook or command interception layer
 
 This project should not compete by adding more prose rules. It should compete by turning experience into compact patterns, tested helper scripts, and adapter-specific runtime behavior.
+
+## Why This Is Not Just `windows-agent-guardrails`
+
+This project should treat `windows-agent-guardrails` as a baseline, not as a template to clone.
+
+The difference is the operating model:
+
+- `windows-agent-guardrails` primarily gives static guardrail prose and pattern references.
+- This project adds a failure corpus lifecycle so experience can be accumulated without bloating runtime context.
+- This project adds helper scripts so fragile repeated behavior can become deterministic.
+- This project adds adapter boundaries so Codex, Claude Code, and generic agent skills can share core knowledge while using runtime-specific integration points.
+- This project adds regression tests and smoke tests as release gates.
 
 ## Version Scope
 
