@@ -389,13 +389,20 @@ function Stop-ProcessTree {
 
     $messages = @()
     $targetIds = @()
+    $rootAlive = $false
     try {
-        if (-not $Process.HasExited) { $targetIds += [int]$Process.Id }
+        $rootAlive = -not $Process.HasExited
     }
     catch {
+        $rootAlive = $true
+    }
+
+    if ($rootAlive) {
         $targetIds += [int]$Process.Id
     }
-    $targetIds += @(Get-DescendantProcessIds -ParentProcessId ([int]$Process.Id))
+    else {
+        $targetIds += @(Get-DescendantProcessIds -ParentProcessId ([int]$Process.Id))
+    }
     $targetIds = @($targetIds | Where-Object { $_ -and $_ -ne $PID } | Select-Object -Unique)
 
     foreach ($targetId in $targetIds) {
@@ -414,7 +421,7 @@ function Stop-ProcessTree {
 
     try {
         if (-not $Process.HasExited) {
-            [void]$Process.WaitForExit(500)
+            [void]$Process.WaitForExit(0)
         }
     }
     catch {
@@ -428,7 +435,7 @@ function Read-CompletedTaskText {
     param($Task)
 
     try {
-        if ($Task.Wait(100)) { return [string]$Task.Result }
+        if ($Task.Wait(0)) { return [string]$Task.Result }
     }
     catch {
         return ""
