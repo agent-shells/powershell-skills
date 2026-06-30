@@ -10,7 +10,7 @@ Use when a command may be written with Bash, cmd.exe, PowerShell, or WSL syntax.
 
 - Check the active shell before borrowing syntax from another platform.
 - In PowerShell, use cmdlets, semicolons, and PowerShell variable syntax.
-- Do not use Bash-only idioms such as `&&`, POSIX command-substitution semantics, `rm -rf`, or unescaped path assumptions unless the active shell supports them.
+- Treat `&&` as version-sensitive PowerShell syntax; avoid it unless the active shell and PowerShell version support it. Do not use Bash-only idioms such as POSIX command-substitution semantics, `rm -rf`, or unescaped path assumptions unless the active shell supports them.
 - PowerShell subexpressions are valid PowerShell syntax; use them with PowerShell semantics.
 
 ## Failure Signals
