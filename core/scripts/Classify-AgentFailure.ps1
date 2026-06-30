@@ -38,6 +38,8 @@ function Get-Classification {
     param([AllowNull()][string]$Text)
 
     if ($null -eq $Text) { $Text = "" }
+    if ($Text -match 'not a valid statement separator|\&\&') { return "shell-selection" }
+    if ($Text -match 'missing the terminator|unterminated string|quote terminator|quotation mark is missing') { return "quoting" }
     if ($Text -match 'An empty pipe element is not allowed|Unexpected token|positional parameter') { return "powershell-parser" }
     if ($Text -match 'Cannot find path|does not exist|Could not find a part of the path') { return "path-handling" }
     if ($Text -match 'not recognized as (the name of )?(a cmdlet|an internal or external command)|is not recognized') { return "tool-discovery" }

@@ -71,6 +71,14 @@ try {
     Assert-True ($classifyResult.ExitCode -eq 0) "classifier should exit 0"
     Assert-True ($classifyResult.Data.classification -eq "powershell-parser") "Expected powershell-parser classification"
 
+    $classifyShellSelectionResult = Invoke-ScriptJson "Classify-AgentFailure.ps1" @("-ErrorText", "The token '&&' is not a valid statement separator in this version.")
+    Assert-True ($classifyShellSelectionResult.ExitCode -eq 0) "classifier shell-selection case should exit 0"
+    Assert-Equal $classifyShellSelectionResult.Data.classification "shell-selection" "Expected shell-selection classification"
+
+    $classifyQuotingResult = Invoke-ScriptJson "Classify-AgentFailure.ps1" @("-ErrorText", "The string is missing the terminator: '.")
+    Assert-True ($classifyQuotingResult.ExitCode -eq 0) "classifier quoting case should exit 0"
+    Assert-Equal $classifyQuotingResult.Data.classification "quoting" "Expected quoting classification"
+
     $classifyOmittedResult = Invoke-ScriptJson "Classify-AgentFailure.ps1"
     Assert-True ($classifyOmittedResult.ExitCode -eq 0) "classifier omitted ErrorText should still exit 0"
     Assert-True ($classifyOmittedResult.Data.classification -eq "unknown") "Expected unknown classification for omitted ErrorText"
@@ -91,6 +99,21 @@ try {
     Assert-True ($invokeResult.Data.stdout -match "env-ok") "Expected stdout to contain env override"
     Assert-True ($invokeResult.Data.exit_code -eq 0) "Expected child exit_code=0"
     Assert-True ($invokeResult.Data.duration_ms -ge 0) "Expected duration_ms field"
+
+    $utf8Text = ([string]([char]0x4E2D) + [string]([char]0x6587) + [string]([char]0x8F93) + [string]([char]0x51FA))
+    $utf8Command = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Write-Output ([string]([char]0x4E2D)+[string]([char]0x6587)+[string]([char]0x8F93)+[string]([char]0x51FA))"
+    $utf8SpecPath = Join-Path $workspace "utf8-stdout.json"
+    Write-JsonSpec @{
+        command = "powershell.exe"
+        args = @("-NoProfile", "-Command", $utf8Command)
+        cwd = $workspace
+        timeout_seconds = 15
+        env = @{}
+        risk = "normal"
+    } $utf8SpecPath
+    $utf8Result = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $utf8SpecPath)
+    Assert-True ($utf8Result.ExitCode -eq 0) "UTF-8 stdout command should exit 0"
+    Assert-True ($utf8Result.Data.stdout -match [regex]::Escape($utf8Text)) "Expected UTF-8 stdout to contain Chinese output"
 
     $destructiveSpecPath = Join-Path $workspace "destructive-spec.json"
     Write-JsonSpec @{
@@ -195,6 +218,29 @@ try {
     Assert-True ($equalsEnvNameResult.ExitCode -eq 1) "env variable name containing equals should exit 1"
     Assert-Equal $equalsEnvNameResult.Data.classification "unknown" "Expected unknown classification for env name containing equals"
     Assert-True ($equalsEnvNameResult.Data.stdout -notmatch "should-not-run") "invalid env name command should not run"
+
+    $argsShapeMessage = "args must be a JSON array of scalar values"
+
+    $objectArgsPath = Join-Path $workspace "object-args.json"
+    Set-Content -LiteralPath $objectArgsPath -Value '{"command":"powershell.exe","args":{"bad":"-Command","payload":"Write-Output should-not-run"},"cwd":"","timeout_seconds":15,"env":{}}'.Replace('"cwd":""', '"cwd":"' + ($workspace -replace '\\', '\\') + '"') -Encoding UTF8
+    $objectArgsResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $objectArgsPath)
+    Assert-True ($objectArgsResult.ExitCode -eq 1) "object args should exit 1"
+    Assert-True ($objectArgsResult.Data.stdout -notmatch "should-not-run") "object args command should not run"
+    Assert-True ($objectArgsResult.Data.stderr -match [regex]::Escape($argsShapeMessage)) "object args should report invalid args shape"
+
+    $scalarArgsPath = Join-Path $workspace "scalar-args.json"
+    Set-Content -LiteralPath $scalarArgsPath -Value '{"command":"powershell.exe","args":"-NoProfile -Command Write-Output should-not-run","cwd":"","timeout_seconds":15,"env":{}}'.Replace('"cwd":""', '"cwd":"' + ($workspace -replace '\\', '\\') + '"') -Encoding UTF8
+    $scalarArgsResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $scalarArgsPath)
+    Assert-True ($scalarArgsResult.ExitCode -eq 1) "scalar args should exit 1"
+    Assert-True ($scalarArgsResult.Data.stdout -notmatch "should-not-run") "scalar args command should not run"
+    Assert-True ($scalarArgsResult.Data.stderr -match [regex]::Escape($argsShapeMessage)) "scalar args should report invalid args shape"
+
+    $nestedArgsPath = Join-Path $workspace "nested-args.json"
+    Set-Content -LiteralPath $nestedArgsPath -Value '{"command":"powershell.exe","args":["-NoProfile",["-Command","Write-Output should-not-run"]],"cwd":"","timeout_seconds":15,"env":{}}'.Replace('"cwd":""', '"cwd":"' + ($workspace -replace '\\', '\\') + '"') -Encoding UTF8
+    $nestedArgsResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $nestedArgsPath)
+    Assert-True ($nestedArgsResult.ExitCode -eq 1) "nested args should exit 1"
+    Assert-True ($nestedArgsResult.Data.stdout -notmatch "should-not-run") "nested args command should not run"
+    Assert-True ($nestedArgsResult.Data.stderr -match [regex]::Escape($argsShapeMessage)) "nested args should report invalid args shape"
 
     $stdoutFailurePath = Join-Path $workspace "stdout-failure.json"
     Write-JsonSpec @{ command = "cmd.exe"; args = @("/c", "echo Cannot find path smoke& exit /b 3"); cwd = $workspace; timeout_seconds = 15 } $stdoutFailurePath

@@ -197,6 +197,24 @@ function Test-SpecProperty {
     return ($null -ne $Spec.PSObject.Properties[$Name])
 }
 
+function Test-JsonScalarArgumentValue {
+    param([AllowNull()]$Value)
+
+    if ($null -eq $Value) { return $false }
+    if ($Value -is [array]) { return $false }
+    if ($Value -is [pscustomobject]) { return $false }
+    if ($Value -is [System.Collections.IDictionary]) { return $false }
+    return $true
+}
+
+function ConvertFrom-SpecJsonForShape {
+    param([string]$JsonText)
+
+    Add-Type -AssemblyName System.Web.Extensions
+    $serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+    return $serializer.DeserializeObject($JsonText)
+}
+
 function Test-CommandPathLike {
     param([string]$Command)
 
@@ -542,6 +560,13 @@ if ($null -eq $spec -or $spec -is [array] -or $spec -isnot [pscustomobject]) {
     Write-ErrorResult -Message "Spec JSON must be an object" -Classification "unknown"
 }
 
+try {
+    $specJsonShape = ConvertFrom-SpecJsonForShape -JsonText $specText
+}
+catch {
+    Write-ErrorResult -Message ("Failed to inspect spec JSON: " + $_.Exception.Message) -Classification "unknown"
+}
+
 $riskValue = Get-SpecProperty -Spec $spec -Name "risk"
 if ($null -eq $riskValue -or [string]::IsNullOrWhiteSpace([string]$riskValue)) {
     $risk = "normal"
@@ -618,22 +643,24 @@ if ([string]::IsNullOrWhiteSpace($command)) {
     Write-ErrorResult -Message "Spec command is required" -Classification "tool-discovery" -TimeoutSeconds $timeout -Cwd $cwd -Risk $risk -Command $command
 }
 
+$commandArgs = @()
+if ($specJsonShape.ContainsKey("args")) {
+    $argsValue = $specJsonShape["args"]
+    if ($null -eq $argsValue -or $argsValue -isnot [array]) {
+        Write-ErrorResult -Message "args must be a JSON array of scalar values" -Classification "unknown" -TimeoutSeconds $timeout -Cwd $cwd -Risk $risk -Command $command
+    }
+
+    foreach ($arg in $argsValue) {
+        if (-not (Test-JsonScalarArgumentValue -Value $arg)) {
+            Write-ErrorResult -Message "args must be a JSON array of scalar values" -Classification "unknown" -TimeoutSeconds $timeout -Cwd $cwd -Risk $risk -Command $command
+        }
+        $commandArgs += [string]$arg
+    }
+}
+
 $resolvedCommand = Resolve-ApplicationCommand -Command $command -Cwd $cwd -EnvPathOverride $envPathOverride
 if (-not $resolvedCommand.Success) {
     Write-ErrorResult -Message $resolvedCommand.Reason -Classification $resolvedCommand.Classification -TimeoutSeconds $timeout -Cwd $cwd -Risk $risk -Command $command -Reason $resolvedCommand.Reason
-}
-
-$commandArgs = @()
-$argsValue = Get-SpecProperty -Spec $spec -Name "args"
-if ($null -ne $argsValue) {
-    foreach ($arg in @($argsValue)) {
-        if ($null -eq $arg) {
-            $commandArgs += ""
-        }
-        else {
-            $commandArgs += [string]$arg
-        }
-    }
 }
 
 $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -641,6 +668,8 @@ $psi.FileName = [string]$resolvedCommand.FileName
 $psi.Arguments = Join-WindowsArguments -ArgumentValues $commandArgs
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
+$psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+$psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
 $psi.UseShellExecute = $false
 $psi.CreateNoWindow = $true
 if ($cwd) { $psi.WorkingDirectory = $cwd }
