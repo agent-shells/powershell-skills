@@ -11,8 +11,7 @@ function Write-JsonResult {
     exit $ExitCode
 }
 
-$found = Get-Command -Name $Command -ErrorAction SilentlyContinue
-if (-not $found) {
+if ($Command.IndexOfAny([char[]]"*?[]") -ge 0) {
     Write-JsonResult @{
         status = "error"
         command = $Command
@@ -21,6 +20,49 @@ if (-not $found) {
         command_type = $null
         version = $null
         classification = "tool-discovery"
+        reason = "Command contains wildcard characters"
+    } 1
+}
+
+$commandMatches = @(Get-Command -Name $Command -All -ErrorAction SilentlyContinue)
+$found = $commandMatches |
+    Where-Object { $_.CommandType -eq [System.Management.Automation.CommandTypes]::Application } |
+    Select-Object -First 1
+
+if (-not $found) {
+    $found = $commandMatches |
+        Where-Object { $_.CommandType -ne [System.Management.Automation.CommandTypes]::Alias } |
+        Select-Object -First 1
+}
+
+if (-not $found) {
+    $alias = $commandMatches |
+        Where-Object { $_.CommandType -eq [System.Management.Automation.CommandTypes]::Alias } |
+        Select-Object -First 1
+
+    if ($alias) {
+        Write-JsonResult @{
+            status = "error"
+            command = $Command
+            found = $false
+            source = [string]$alias.Source
+            command_type = $alias.CommandType.ToString()
+            version = $null
+            classification = "tool-discovery"
+            reason = "Only alias match found"
+            alias_target = [string]$alias.Definition
+        } 1
+    }
+
+    Write-JsonResult @{
+        status = "error"
+        command = $Command
+        found = $false
+        source = $null
+        command_type = $null
+        version = $null
+        classification = "tool-discovery"
+        reason = "Command not found"
     } 1
 }
 
@@ -33,7 +75,7 @@ Write-JsonResult @{
     status = "success"
     command = $Command
     found = $true
-    source = $found.Source
+    source = [string]$found.Source
     command_type = $found.CommandType.ToString()
     version = $version
     classification = $null
