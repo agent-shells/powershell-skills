@@ -11,6 +11,8 @@ Use this skill to make Windows shell execution boring and reliable.
 
 Read `../../../core/execution-contract.md` before high-risk Windows shell work.
 
+This adapter depends on the repo layout: keep `core/` at `../../../core`; standalone copies of this adapter folder are unsupported unless core is preserved at that relative path.
+
 Classify command risk:
 
 - `normal`: simple read-only commands, git status, directory listings, version checks.
@@ -24,10 +26,11 @@ Classify command risk:
 - Use PowerShell syntax in PowerShell sessions.
 - Prefer native PowerShell file commands for file operations.
 - Prefer `-LiteralPath` when exact path handling matters.
-- Check external tools with `../../../core/scripts/Test-AgentCommand.ps1` before relying on them in high-risk commands.
+- Check external tools with `../../../core/scripts/Test-AgentCommand.ps1` before relying on them in high-risk commands, or whenever availability or source is uncertain.
 - Check exact paths with `../../../core/scripts/Resolve-AgentPath.ps1` when spaces, non-ASCII characters, or destructive operations are involved.
 - Classify repeated failures with `../../../core/scripts/Classify-AgentFailure.ps1`.
 - Use `../../../core/scripts/Invoke-AgentCommand.ps1` when structured stdout, stderr, exit code, timeout, cwd, or environment handling matters.
+- `Invoke-AgentCommand.ps1` V0.1 only runs Application commands; do not use it for PowerShell cmdlets, functions, or aliases; use an explicit command path when env PATH is overridden.
 
 ## Pattern Routing
 
@@ -44,6 +47,7 @@ Classify command risk:
 ## Stop Rules
 
 - Do not repeat the same failed command shape.
+- After the second failed command shape, stop and report the blocker unless new evidence changes the diagnosis.
 - Do not run destructive filesystem commands without resolved target validation.
 - Do not use a helper script to bypass host permission or sandbox rules.
 - Do not commit raw private failure logs to the corpus.
