@@ -348,11 +348,11 @@ function Get-ChildProcessInfo {
 
     $filter = "ParentProcessId = $ParentProcessId"
     try {
-        return @(Get-CimInstance -ClassName Win32_Process -Filter $filter -ErrorAction Stop)
+        return @(Get-WmiObject -Class Win32_Process -Filter $filter -ErrorAction Stop)
     }
     catch {
         try {
-            return @(Get-WmiObject -Class Win32_Process -Filter $filter -ErrorAction Stop)
+            return @(Get-CimInstance -ClassName Win32_Process -Filter $filter -ErrorAction Stop)
         }
         catch {
             return @()
@@ -387,39 +387,47 @@ function Get-DescendantProcessIds {
 function Stop-ProcessTree {
     param([System.Diagnostics.Process]$Process)
 
-    $messages = @()
-    $targetIds = @()
-    $rootAlive = $false
+    $messages = New-Object System.Collections.ArrayList
+    $rootId = [int]$Process.Id
+    $rootLooksAlive = $false
+
     try {
-        $rootAlive = -not $Process.HasExited
+        $Process.Refresh()
+        $rootLooksAlive = -not $Process.HasExited
     }
-    catch {
-        $rootAlive = $true
-    }
+    catch {}
 
-    if ($rootAlive) {
-        $targetIds += [int]$Process.Id
-    }
-    else {
-        $targetIds += @(Get-DescendantProcessIds -ParentProcessId ([int]$Process.Id))
-    }
-    $targetIds = @($targetIds | Where-Object { $_ -and $_ -ne $PID } | Select-Object -Unique)
+    $killedIds = @{}
+    function Invoke-TaskKillTarget {
+        param([int]$TargetId)
 
-    foreach ($targetId in $targetIds) {
+        if (-not $TargetId -or $TargetId -eq $PID -or $killedIds.ContainsKey($TargetId)) { return }
+        $killedIds[$TargetId] = $true
         try {
-            $taskkillOutput = & taskkill.exe /PID $targetId /T /F 2>&1
-            if ($taskkillOutput) { $messages += (($taskkillOutput | Out-String).Trim()) }
+            $taskkillOutput = & taskkill.exe /PID $TargetId /T /F 2>&1
+            if ($taskkillOutput) { [void]$messages.Add((($taskkillOutput | Out-String).Trim())) }
             if ($LASTEXITCODE -ne 0) {
-                try { Stop-Process -Id $targetId -Force -ErrorAction SilentlyContinue } catch {}
+                try { Stop-Process -Id $TargetId -Force -ErrorAction SilentlyContinue } catch {}
             }
         }
         catch {
-            $messages += "taskkill failed for PID ${targetId}: $($_.Exception.Message)"
-            try { Stop-Process -Id $targetId -Force -ErrorAction SilentlyContinue } catch {}
+            [void]$messages.Add("taskkill failed for PID ${TargetId}: $($_.Exception.Message)")
+            try { Stop-Process -Id $TargetId -Force -ErrorAction SilentlyContinue } catch {}
         }
     }
 
+    if ($rootLooksAlive) {
+        Invoke-TaskKillTarget -TargetId $rootId
+    }
+
+    foreach ($targetId in @(Get-DescendantProcessIds -ParentProcessId $rootId)) {
+        Invoke-TaskKillTarget -TargetId ([int]$targetId)
+    }
+
+    Invoke-TaskKillTarget -TargetId $rootId
+
     try {
+        $Process.Refresh()
         if (-not $Process.HasExited) {
             [void]$Process.WaitForExit(0)
         }
@@ -441,6 +449,15 @@ function Read-CompletedTaskText {
         return ""
     }
     return ""
+}
+
+function Close-ProcessStreams {
+    param([System.Diagnostics.Process]$Process)
+
+    try { $Process.StandardOutput.Close() } catch {}
+    try { $Process.StandardError.Close() } catch {}
+    try { $Process.Close() } catch {}
+    try { $Process.Dispose() } catch {}
 }
 
 function Get-RemainingDeadlineMilliseconds {
@@ -480,6 +497,7 @@ function Write-TimeoutResult {
     $killOutput = Stop-ProcessTree -Process $Process
     $timeoutStdout = Read-CompletedTaskText -Task $StdoutTask
     $timeoutStderr = Read-CompletedTaskText -Task $StderrTask
+    Close-ProcessStreams -Process $Process
     if ($Stopwatch.IsRunning) { $Stopwatch.Stop() }
 
     $timeoutMessage = "TIMEOUT after ${TimeoutSeconds}s"
