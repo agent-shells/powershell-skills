@@ -10,6 +10,12 @@ This project exists because general-purpose coding agents often handle Windows a
 - V0.2: Windows PowerShell 5.1 and PowerShell 7 compatibility matrix with GitHub Actions CI.
 - V0.3: Claude Code skill adapter and global Claude Code installer.
 
+Release notes:
+
+- [v0.1](docs/releases/v0.1.md)
+- [v0.2](docs/releases/v0.2.md)
+- [v0.3](docs/releases/v0.3.md)
+
 ## Features
 
 - Codex skill adapter: `adapters/codex/powershell-command-runner/SKILL.md`
@@ -165,6 +171,14 @@ True
 True
 ```
 
+## Contributing and Security
+
+- [Contributing guide](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+- [Field tests](docs/field-tests/README.md)
+- [First-pass command success issues](docs/field-tests/first-pass-issues.md)
+
 ## Current Limits
 
 - Supported adapters are Codex and Claude Code. Other agent adapters are not implemented yet.
@@ -181,12 +195,18 @@ True
 ```text
 adapters/codex/powershell-command-runner/  Codex skill adapter
 adapters/claude-code/powershell-command-runner/ Claude Code skill adapter
+CHANGELOG.md                              Release changelog
+CONTRIBUTING.md                           Contribution guide
 core/execution-contract.md                 Shared execution rules
 core/pattern-catalog/                      Reusable PowerShell/Windows failure patterns
 core/scripts/                              JSON-oriented helper scripts
 core/failure-corpus/                       Sanitized failure evidence and schema
 core/tests/run-smoke.ps1                   Helper behavior smoke tests
+docs/field-tests/                          Real agent pressure-test notes
+docs/releases/                             Release notes for v0.1, v0.2, v0.3
+LICENSE                                   Project license
 .github/workflows/ci.yml                   Windows PowerShell 5.1 and PowerShell 7 CI
+SECURITY.md                               Security policy
 scripts/install-codex-global.ps1           Global Codex skill install
 scripts/install-codex-local.ps1            Repo-local Codex skill install
 scripts/install-claude-global.ps1          Global Claude Code skill install

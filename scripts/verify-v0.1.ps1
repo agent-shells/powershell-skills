@@ -317,7 +317,11 @@ function Test-IsolatedClaudeGlobalInstall {
 
 $requiredFiles = @(
     ".github\workflows\ci.yml",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
     "README.md",
+    "SECURITY.md",
     "core\execution-contract.md",
     "core\scripts\Test-AgentCommand.ps1",
     "core\scripts\Resolve-AgentPath.ps1",
@@ -327,6 +331,13 @@ $requiredFiles = @(
     "adapters\codex\powershell-command-runner\SKILL.md",
     "adapters\codex\powershell-command-runner\agents\openai.yaml",
     "adapters\claude-code\powershell-command-runner\SKILL.md",
+    "docs\field-tests\README.md",
+    "docs\field-tests\2026-07-02-v0.3-claude-code-windows-path.md",
+    "docs\field-tests\2026-07-02-v0.3-codex-install-check.md",
+    "docs\field-tests\first-pass-issues.md",
+    "docs\releases\v0.1.md",
+    "docs\releases\v0.2.md",
+    "docs\releases\v0.3.md",
     "scripts\install-codex-local.ps1",
     "scripts\install-codex-global.ps1",
     "scripts\install-claude-global.ps1"
@@ -344,6 +355,7 @@ $requiredReadmeMarkers = @(
     "## Triggering",
     "## Compatibility",
     "## Verification",
+    "## Contributing and Security",
     "## Current Limits"
 )
 
@@ -354,6 +366,29 @@ foreach ($marker in $requiredReadmeMarkers) {
 Assert-True ($readmeText.Contains("PowerShell 5.1")) "README.md must describe PowerShell 5.1 compatibility"
 Assert-True ($readmeText.Contains("PowerShell 7")) "README.md must describe PowerShell 7 compatibility"
 Assert-True ($readmeText.Contains("Claude Code")) "README.md must describe Claude Code compatibility"
+Assert-True ($readmeText.Contains("docs/releases/v0.1.md")) "README.md must link v0.1 release notes"
+Assert-True ($readmeText.Contains("docs/releases/v0.2.md")) "README.md must link v0.2 release notes"
+Assert-True ($readmeText.Contains("docs/releases/v0.3.md")) "README.md must link v0.3 release notes"
+Assert-True ($readmeText.Contains("docs/field-tests/README.md")) "README.md must link field tests"
+
+$licenseText = Get-Content -LiteralPath (Join-RepoPath "LICENSE") -Raw
+Assert-True ($licenseText.Contains("MIT License")) "LICENSE must use the expected MIT license text"
+
+$contributingText = Get-Content -LiteralPath (Join-RepoPath "CONTRIBUTING.md") -Raw
+Assert-True ($contributingText.Contains("Do not submit")) "CONTRIBUTING.md must include sanitized contribution rules"
+Assert-True ($contributingText.Contains("Do not add telemetry")) "CONTRIBUTING.md must forbid telemetry or upload additions"
+
+$securityText = Get-Content -LiteralPath (Join-RepoPath "SECURITY.md") -Raw
+Assert-True ($securityText.Contains("Reporting a Vulnerability")) "SECURITY.md must include reporting guidance"
+Assert-True ($securityText.Contains("automatic failure upload")) "SECURITY.md must preserve no-upload boundary"
+
+$changelogText = Get-Content -LiteralPath (Join-RepoPath "CHANGELOG.md") -Raw
+foreach ($version in @("v0.1", "v0.2", "v0.3")) {
+    Assert-True ($changelogText.Contains($version)) "CHANGELOG.md must document $version"
+}
+
+$fieldIssuesText = Get-Content -LiteralPath (Join-RepoPath "docs\field-tests\first-pass-issues.md") -Raw
+Assert-True ($fieldIssuesText.Contains("First-Pass Command Success Issues")) "Field-test issue log must describe first-pass command success issues"
 
 $ciText = Get-Content -LiteralPath (Join-RepoPath ".github\workflows\ci.yml") -Raw
 Assert-True ($ciText.Contains("windows-latest")) "CI workflow must run on windows-latest"
