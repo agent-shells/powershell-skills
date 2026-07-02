@@ -339,11 +339,17 @@ $requiredFiles = @(
     "docs\field-tests\2026-07-02-v0.3-claude-code-windows-path.md",
     "docs\field-tests\2026-07-02-v0.3-codex-install-check.md",
     "docs\field-tests\first-pass-issues.md",
+    "docs\adapters.md",
+    "docs\architecture.md",
+    "docs\compatibility.md",
+    "docs\helpers.md",
+    "docs\security-model.md",
     "docs\releases\v0.1.md",
     "docs\releases\v0.2.md",
     "docs\releases\v0.3.md",
     "docs\releases\v0.4.md",
     "docs\releases\v0.5.md",
+    "docs\releases\v0.5.1.md",
     "scripts\install-codex-local.ps1",
     "scripts\install-codex-global.ps1",
     "scripts\install-claude-global.ps1"
@@ -377,6 +383,9 @@ Assert-True ($readmeText.Contains("docs/releases/v0.2.md")) "README.md must link
 Assert-True ($readmeText.Contains("docs/releases/v0.3.md")) "README.md must link v0.3 release notes"
 Assert-True ($readmeText.Contains("docs/releases/v0.4.md")) "README.md must link v0.4 release notes"
 Assert-True ($readmeText.Contains("docs/releases/v0.5.md")) "README.md must link v0.5 release notes"
+Assert-True ($readmeText.Contains("docs/releases/v0.5.1.md")) "README.md must link v0.5.1 release notes"
+Assert-True ($readmeText.Contains("docs/compatibility.md")) "README.md must link compatibility docs"
+Assert-True ($readmeText.Contains("docs/adapters.md")) "README.md must link adapter docs"
 Assert-True ($readmeText.Contains("docs/field-tests/README.md")) "README.md must link field tests"
 Assert-True ($readmeText.Contains("powershell-skills doctor")) "README.md must describe doctor UX"
 Assert-True ($readmeText.Contains("powershell-skills update")) "README.md must describe update UX"

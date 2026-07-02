@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## v0.5.1 - README and Documentation Polish
+
+Release date: 2026-07-03
+
+- Shortened the root README into a clearer GitHub and npm landing page.
+- Moved detailed adapter behavior, helper script notes, compatibility guidance, architecture, and security boundaries into focused docs under `docs/`.
+- Kept runtime behavior unchanged from v0.5.
+
 ## v0.5 - Read-Only PowerShell Helper
 
 Release date: 2026-07-02
