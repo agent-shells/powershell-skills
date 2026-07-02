@@ -3,6 +3,18 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Set-AgentUtf8Output {
+    try {
+        $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+        [Console]::OutputEncoding = $utf8NoBom
+        $script:OutputEncoding = $utf8NoBom
+    }
+    catch {}
+}
+
+Set-AgentUtf8Output
+
 $RepoRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")
 $ScriptsRoot = Join-Path $RepoRoot "core\scripts"
 

@@ -95,6 +95,8 @@ function Invoke-ProcessCapture {
     $startInfo.Arguments = Join-ProcessArguments -Arguments $Arguments
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $startInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {

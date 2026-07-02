@@ -2,6 +2,17 @@ $ErrorActionPreference = "Stop"
 $ErrorText = $null
 $ExitCode = 1
 
+function Set-AgentUtf8Output {
+    try {
+        $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+        [Console]::OutputEncoding = $utf8NoBom
+        $script:OutputEncoding = $utf8NoBom
+    }
+    catch {}
+}
+
+Set-AgentUtf8Output
+
 function Test-KnownParameterName {
     param([AllowNull()][string]$Value)
 

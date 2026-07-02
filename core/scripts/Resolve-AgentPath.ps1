@@ -7,6 +7,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Set-AgentUtf8Output {
+    try {
+        $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+        [Console]::OutputEncoding = $utf8NoBom
+        $script:OutputEncoding = $utf8NoBom
+    }
+    catch {}
+}
+
+Set-AgentUtf8Output
+
 function Write-JsonResult {
     param($Value, [int]$ExitCode)
     $Value | ConvertTo-Json -Depth 8 -Compress
