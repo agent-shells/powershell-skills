@@ -122,12 +122,37 @@ function npmExecutable() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
 }
 
-function runCapture(file, args, cwd) {
-  return spawnSync(file, args, {
+function quoteCmdArgument(value) {
+  const text = String(value);
+  if (text.length === 0) return "\"\"";
+  if (!/[ \t&()^|<>"]/ .test(text)) return text;
+  return `"${text.replace(/"/g, "\"\"")}"`;
+}
+
+function shouldUseCmdWrapper(file) {
+  const text = String(file);
+  return process.platform === "win32" && (text === "powershell-skills" || /\.(cmd|bat)$/i.test(text));
+}
+
+function spawnPortable(file, args, cwd, options = {}) {
+  let command = file;
+  let commandArgs = args;
+
+  if (shouldUseCmdWrapper(file)) {
+    command = process.env.ComSpec || "cmd.exe";
+    commandArgs = ["/d", "/s", "/c", [file, ...args].map(quoteCmdArgument).join(" ")];
+  }
+
+  return spawnSync(command, commandArgs, {
     cwd,
     encoding: "utf8",
+    stdio: options.stdio || "pipe",
     windowsHide: true
   });
+}
+
+function runCapture(file, args, cwd) {
+  return spawnPortable(file, args, cwd);
 }
 
 function extractJson(text) {
@@ -272,14 +297,14 @@ function commandDoctor(options) {
   }
 
   const ps = options.powershell || defaultPowerShell();
-  const psResult = runCapture(ps, ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"], packageRoot);
+  const psResult = runCapture(ps, ["-NoProfile", "-Command", "($PSVersionTable.PSVersion).ToString()"], packageRoot);
   if (psResult.error || psResult.status !== 0) {
     addCheck(checks, "powershell", "error", `${ps} is not available.`, { reason: psResult.error ? psResult.error.message : psResult.stderr });
   } else {
     addCheck(checks, "powershell", "ok", `${ps} ${psResult.stdout.trim()} is available.`);
   }
 
-  const pwshResult = runCapture("pwsh", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"], packageRoot);
+  const pwshResult = runCapture("pwsh", ["-NoProfile", "-Command", "($PSVersionTable.PSVersion).ToString()"], packageRoot);
   if (pwshResult.error || pwshResult.status !== 0) {
     addCheck(checks, "pwsh", "warn", "PowerShell 7 (pwsh) is not available on PATH.", { reason: pwshResult.error ? pwshResult.error.message : pwshResult.stderr });
   } else {
@@ -358,11 +383,8 @@ function commandUpdate(positionals, options) {
     return;
   }
 
-  const npmResult = spawnSync(npmExecutable(), ["install", "-g", `${packageName}@latest`], {
-    cwd: packageRoot,
-    encoding: "utf8",
-    stdio: options.json ? "pipe" : "inherit",
-    windowsHide: true
+  const npmResult = spawnPortable(npmExecutable(), ["install", "-g", `${packageName}@latest`], packageRoot, {
+    stdio: options.json ? "pipe" : "inherit"
   });
   if (npmResult.error || npmResult.status !== 0) {
     fail(`npm update failed: ${npmResult.error ? npmResult.error.message : npmResult.stderr || npmResult.status}`, options);
@@ -379,11 +401,8 @@ function commandUpdate(positionals, options) {
   if (options.force) installArgs.push("--force");
   if (options.json) installArgs.push("--json");
 
-  const installResult = spawnSync("powershell-skills", installArgs, {
-    cwd: packageRoot,
-    encoding: "utf8",
-    stdio: options.json ? "pipe" : "inherit",
-    windowsHide: true
+  const installResult = spawnPortable("powershell-skills", installArgs, packageRoot, {
+    stdio: options.json ? "pipe" : "inherit"
   });
   if (installResult.error || installResult.status !== 0) {
     fail(`post-update install failed: ${installResult.error ? installResult.error.message : installResult.stderr || installResult.status}`, options);

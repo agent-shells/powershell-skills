@@ -67,6 +67,7 @@ try {
   assert.strictEqual(doctorData.package.version, pkg.version);
   assert.ok(Array.isArray(doctorData.checks), "doctor checks should be an array");
   assert.ok(doctorData.checks.some((check) => check.id === "package-files" && check.status === "ok"), "doctor should verify package files");
+  assert.ok(doctorData.checks.some((check) => check.id === "npm" && check.status === "ok"), "doctor should detect npm");
 
   const codexHome = tempDir("codex-home");
   tempRoots.push(codexHome);
