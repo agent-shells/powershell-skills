@@ -25,10 +25,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Show PowerShell version
         shell: pwsh
         run: |
           & "${{ matrix.powershell.executable }}" -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+
+      - name: Run npm CLI tests
+        shell: pwsh
+        run: |
+          npm test
 
       - name: Run smoke tests
         shell: pwsh

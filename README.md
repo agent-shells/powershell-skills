@@ -9,12 +9,14 @@ This project exists because general-purpose coding agents often handle Windows a
 - V0.1: Codex skill adapter, shared PowerShell execution contract, pattern catalog, helper scripts, failure corpus, local/global Codex installers, and release verification.
 - V0.2: Windows PowerShell 5.1 and PowerShell 7 compatibility matrix with GitHub Actions CI.
 - V0.3: Claude Code skill adapter and global Claude Code installer.
+- V0.4: npm package metadata, `powershell-skills` CLI, global install UX, explicit update UX, and doctor diagnostics.
 
 Release notes:
 
 - [v0.1](docs/releases/v0.1.md)
 - [v0.2](docs/releases/v0.2.md)
 - [v0.3](docs/releases/v0.3.md)
+- [v0.4](docs/releases/v0.4.md)
 
 ## Features
 
@@ -35,6 +37,12 @@ Release notes:
   - `Resolve-AgentPath.ps1`: path resolution for spaces, non-ASCII names, and `-LiteralPath` usage.
   - `Classify-AgentFailure.ps1`: maps common error text to failure classes.
   - `Invoke-AgentCommand.ps1`: spec-driven Application command runner with JSON result output, cwd/env handling, UTF-8 stdout/stderr capture, timeout handling, process-tree cleanup, argument validation, and destructive-risk blocking.
+- npm CLI: `bin/powershell-skills.js`
+  - `powershell-skills install codex`: installs the Codex global skill.
+  - `powershell-skills install claude-code`: installs the Claude Code global skill.
+  - `powershell-skills install all`: installs both supported adapters.
+  - `powershell-skills doctor`: checks package files, PowerShell hosts, npm, and installed skill locations.
+  - `powershell-skills update`: runs an explicit npm update flow and then re-runs skill installation.
 - Failure corpus: `core/failure-corpus/`
   - Stores sanitized, minimized failure cases as evidence for future rules.
   - V0.1 includes seed cases for encoding, path spaces, parser traps, missing tools, and destructive-operation preflight.
@@ -49,7 +57,38 @@ Release notes:
 
 ## Installation
 
-V0.3 provides global Codex and Claude Code installs plus a repo-local Codex development install. It does not publish an npm package yet.
+V0.4 adds an npm CLI. The PowerShell scripts remain the source of truth; npm is used for distribution and command UX.
+
+Install from GitHub through npm:
+
+```powershell
+npm install -g github:agent-shells/powershell-skills#v0.4
+powershell-skills install all
+powershell-skills doctor
+```
+
+After the package is published to the npm registry, use:
+
+```powershell
+npm install -g @agent-shells/powershell-skills
+powershell-skills install all
+powershell-skills doctor
+```
+
+Install only one adapter:
+
+```powershell
+powershell-skills install codex
+powershell-skills install claude-code
+```
+
+Update an npm registry install explicitly:
+
+```powershell
+powershell-skills update
+```
+
+V0.4 still supports direct PowerShell installation from a cloned checkout.
 
 Recommended Codex global install:
 
@@ -128,6 +167,7 @@ The core scripts are tested on both Windows PowerShell 5.1 and PowerShell 7 thro
 - PowerShell 7: verified through `pwsh`.
 - Helper scripts avoid PowerShell 7-only syntax.
 - `Invoke-AgentCommand.ps1` can run either PowerShell host as an Application command when it is explicitly requested.
+- The npm CLI is a dispatch layer and does not replace the PowerShell compatibility matrix.
 
 ## Verification
 
@@ -157,6 +197,19 @@ Expected result:
 [OK] release verification passed
 ```
 
+Run the npm CLI verification:
+
+```powershell
+npm test
+npm pack --dry-run
+```
+
+Expected result:
+
+```text
+[OK] npm CLI smoke tests passed
+```
+
 Verify global installation on the current machine:
 
 ```powershell
@@ -182,7 +235,8 @@ True
 ## Current Limits
 
 - Supported adapters are Codex and Claude Code. Other agent adapters are not implemented yet.
-- No npm package, installer package, or auto-update channel exists yet. Update by pulling the repo and re-running the relevant global installer.
+- npm registry publishing requires a maintainer npm login. Until the registry package is published, install from GitHub through npm or from a cloned checkout.
+- Updates are explicit. There is no background auto-update service.
 - `Invoke-AgentCommand.ps1` V0.1 runs Application commands only. It intentionally rejects PowerShell cmdlets, functions, and aliases. Use normal PowerShell syntax directly for cmdlets.
 - Destructive command execution is not automated. Destructive risk requires explicit validation outside the runner.
 - There is no failure-experience upload feature, no automatic telemetry, no periodic collection, and no upload of user command context.
@@ -195,6 +249,7 @@ True
 ```text
 adapters/codex/powershell-command-runner/  Codex skill adapter
 adapters/claude-code/powershell-command-runner/ Claude Code skill adapter
+bin/powershell-skills.js                  npm CLI
 CHANGELOG.md                              Release changelog
 CONTRIBUTING.md                           Contribution guide
 core/execution-contract.md                 Shared execution rules
@@ -203,14 +258,16 @@ core/scripts/                              JSON-oriented helper scripts
 core/failure-corpus/                       Sanitized failure evidence and schema
 core/tests/run-smoke.ps1                   Helper behavior smoke tests
 docs/field-tests/                          Real agent pressure-test notes
-docs/releases/                             Release notes for v0.1, v0.2, v0.3
+docs/releases/                             Release notes
 LICENSE                                   Project license
+package.json                              npm package metadata
 .github/workflows/ci.yml                   Windows PowerShell 5.1 and PowerShell 7 CI
 SECURITY.md                               Security policy
 scripts/install-codex-global.ps1           Global Codex skill install
 scripts/install-codex-local.ps1            Repo-local Codex skill install
 scripts/install-claude-global.ps1          Global Claude Code skill install
 scripts/verify-v0.1.ps1                    V0.1 release verification
+tests/npm-cli-smoke.js                    npm CLI smoke tests
 ```
 
 ## Roadmap

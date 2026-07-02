@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here.
 
+## v0.4 - npm Distribution and Install UX
+
+Release date: 2026-07-02
+
+- Added npm package metadata for `@agent-shells/powershell-skills`.
+- Added `powershell-skills` CLI with:
+  - `install codex`
+  - `install claude-code`
+  - `install all`
+  - `doctor`
+  - `update`
+- Added JSON output support for install and doctor workflows.
+- Added explicit update dry-run support so update actions can be inspected before execution.
+- Added npm CLI smoke tests.
+- Updated release verification to include package metadata, CLI files, and npm tests.
+
 ## v0.3 - Claude Code Adapter
 
 Release date: 2026-07-02

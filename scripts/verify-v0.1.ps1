@@ -322,12 +322,15 @@ $requiredFiles = @(
     "LICENSE",
     "README.md",
     "SECURITY.md",
+    "package.json",
+    "bin\powershell-skills.js",
     "core\execution-contract.md",
     "core\scripts\Test-AgentCommand.ps1",
     "core\scripts\Resolve-AgentPath.ps1",
     "core\scripts\Classify-AgentFailure.ps1",
     "core\scripts\Invoke-AgentCommand.ps1",
     "core\tests\run-smoke.ps1",
+    "tests\npm-cli-smoke.js",
     "adapters\codex\powershell-command-runner\SKILL.md",
     "adapters\codex\powershell-command-runner\agents\openai.yaml",
     "adapters\claude-code\powershell-command-runner\SKILL.md",
@@ -338,6 +341,7 @@ $requiredFiles = @(
     "docs\releases\v0.1.md",
     "docs\releases\v0.2.md",
     "docs\releases\v0.3.md",
+    "docs\releases\v0.4.md",
     "scripts\install-codex-local.ps1",
     "scripts\install-codex-global.ps1",
     "scripts\install-claude-global.ps1"
@@ -369,7 +373,10 @@ Assert-True ($readmeText.Contains("Claude Code")) "README.md must describe Claud
 Assert-True ($readmeText.Contains("docs/releases/v0.1.md")) "README.md must link v0.1 release notes"
 Assert-True ($readmeText.Contains("docs/releases/v0.2.md")) "README.md must link v0.2 release notes"
 Assert-True ($readmeText.Contains("docs/releases/v0.3.md")) "README.md must link v0.3 release notes"
+Assert-True ($readmeText.Contains("docs/releases/v0.4.md")) "README.md must link v0.4 release notes"
 Assert-True ($readmeText.Contains("docs/field-tests/README.md")) "README.md must link field tests"
+Assert-True ($readmeText.Contains("powershell-skills doctor")) "README.md must describe doctor UX"
+Assert-True ($readmeText.Contains("powershell-skills update")) "README.md must describe update UX"
 
 $licenseText = Get-Content -LiteralPath (Join-RepoPath "LICENSE") -Raw
 Assert-True ($licenseText.Contains("MIT License")) "LICENSE must use the expected MIT license text"
@@ -382,8 +389,18 @@ $securityText = Get-Content -LiteralPath (Join-RepoPath "SECURITY.md") -Raw
 Assert-True ($securityText.Contains("Reporting a Vulnerability")) "SECURITY.md must include reporting guidance"
 Assert-True ($securityText.Contains("automatic failure upload")) "SECURITY.md must preserve no-upload boundary"
 
+$packageText = Get-Content -LiteralPath (Join-RepoPath "package.json") -Raw
+$packageJson = $packageText | ConvertFrom-Json
+Assert-True ($packageJson.name -eq "@agent-shells/powershell-skills") "package.json must use the expected npm package name"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$packageJson.bin."powershell-skills")) "package.json must expose powershell-skills bin"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$packageJson.scripts.test)) "package.json must define npm test"
+
+$cliText = Get-Content -LiteralPath (Join-RepoPath "bin\powershell-skills.js") -Raw
+Assert-True ($cliText.Contains("powershell-skills doctor")) "CLI must include doctor usage"
+Assert-True ($cliText.Contains("powershell-skills update")) "CLI must include update usage"
+
 $changelogText = Get-Content -LiteralPath (Join-RepoPath "CHANGELOG.md") -Raw
-foreach ($version in @("v0.1", "v0.2", "v0.3")) {
+foreach ($version in @("v0.1", "v0.2", "v0.3", "v0.4")) {
     Assert-True ($changelogText.Contains($version)) "CHANGELOG.md must document $version"
 }
 
@@ -414,6 +431,15 @@ if ($smokeResult.ExitCode -ne 0) {
     throw "Smoke tests failed with exit code $($smokeResult.ExitCode).`nSTDOUT:`n$($smokeResult.Stdout)`nSTDERR:`n$($smokeResult.Stderr)"
 }
 Assert-True ($smokeResult.Stdout -match "\[OK\] smoke tests passed") "Smoke tests exited 0 but did not report success. stdout=[$($smokeResult.Stdout)] stderr=[$($smokeResult.Stderr)]"
+
+$npmCommandName = if ($env:OS -eq "Windows_NT") { "npm.cmd" } else { "npm" }
+$npmCommandInfo = Get-Command -Name $npmCommandName -ErrorAction Stop
+$resolvedNpm = if ($npmCommandInfo.Source) { [string]$npmCommandInfo.Source } else { [string]$npmCommandInfo.Definition }
+$npmTestResult = Invoke-ProcessCapture -FileName $resolvedNpm -Arguments @("test") -WorkingDirectory $RepoRoot
+if ($npmTestResult.ExitCode -ne 0) {
+    throw "npm test failed with exit code $($npmTestResult.ExitCode).`nSTDOUT:`n$($npmTestResult.Stdout)`nSTDERR:`n$($npmTestResult.Stderr)"
+}
+Assert-True ($npmTestResult.Stdout -match "\[OK\] npm CLI smoke tests passed") "npm test exited 0 but did not report success. stdout=[$($npmTestResult.Stdout)] stderr=[$($npmTestResult.Stderr)]"
 
 $adapterDir = Join-RepoPath "adapters\codex\powershell-command-runner"
 $skillPath = Join-Path $adapterDir "SKILL.md"

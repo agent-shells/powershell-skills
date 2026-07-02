@@ -1,0 +1,39 @@
+{
+  "name": "@agent-shells/powershell-skills",
+  "version": "0.4.0",
+  "description": "PowerShell skills and guardrails for reliable Windows command execution by AI agents.",
+  "license": "MIT",
+  "bin": {
+    "powershell-skills": "bin/powershell-skills.js"
+  },
+  "files": [
+    "adapters/",
+    "bin/",
+    "core/",
+    "docs/releases/",
+    "scripts/",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "README.md",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "test": "npm run test:npm",
+    "test:npm": "node tests/npm-cli-smoke.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agent-shells/powershell-skills.git"
+  },
+  "homepage": "https://github.com/agent-shells/powershell-skills#readme",
+  "bugs": {
+    "url": "https://github.com/agent-shells/powershell-skills/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
