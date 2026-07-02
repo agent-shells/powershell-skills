@@ -13,6 +13,7 @@ Release date: 2026-07-02
 - Kept `Invoke-AgentCommand.ps1` Application-only.
 - Added smoke tests for read-only cmdlet success and policy rejection cases on Windows PowerShell 5.1 and PowerShell 7.
 - Updated Codex and Claude Code adapters to route structured read-only cmdlet work to the new helper.
+- Fixed Windows npm CLI dispatch so `doctor` and `update` handle npm's `.cmd` shim correctly.
 
 ## v0.4 - npm Distribution and Install UX
 
