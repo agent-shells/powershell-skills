@@ -220,6 +220,7 @@ function Test-IsolatedInstall {
 }
 
 $requiredFiles = @(
+    "README.md",
     "core\execution-contract.md",
     "core\scripts\Test-AgentCommand.ps1",
     "core\scripts\Resolve-AgentPath.ps1",
@@ -232,6 +233,21 @@ $requiredFiles = @(
 
 foreach ($relativePath in $requiredFiles) {
     Assert-RequiredPath -RelativePath $relativePath -PathType Leaf
+}
+
+$readmeText = Get-Content -LiteralPath (Join-RepoPath "README.md") -Raw
+$requiredReadmeMarkers = @(
+    "# powershell-skills",
+    "## V0.1 Features",
+    "## Installation",
+    "## Triggering",
+    "## Compatibility",
+    "## Verification",
+    "## Current Limits"
+)
+
+foreach ($marker in $requiredReadmeMarkers) {
+    Assert-True ($readmeText.Contains($marker)) "README.md is missing required section marker: $marker"
 }
 
 $requiredDirectories = @(
