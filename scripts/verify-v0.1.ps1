@@ -270,6 +270,49 @@ function Test-IsolatedGlobalInstall {
     }
 }
 
+function Test-IsolatedClaudeGlobalInstall {
+    $tempRepo = Join-Path ([IO.Path]::GetTempPath()) ("powershell-skills-claude-repo-" + [guid]::NewGuid().ToString("N"))
+    $tempClaudeHome = Join-Path ([IO.Path]::GetTempPath()) ("powershell-skills-claude-home-" + [guid]::NewGuid().ToString("N"))
+    $tempTarget = Join-Path $tempClaudeHome "skills\powershell-command-runner"
+
+    try {
+        New-Item -ItemType Directory -Path (Join-Path $tempRepo "scripts") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $tempRepo "adapters\claude-code") -Force | Out-Null
+
+        Copy-Item -LiteralPath (Join-RepoPath "scripts\install-claude-global.ps1") -Destination (Join-Path $tempRepo "scripts\install-claude-global.ps1")
+        Copy-Item -LiteralPath (Join-RepoPath "adapters\claude-code\powershell-command-runner") -Destination (Join-Path $tempRepo "adapters\claude-code\powershell-command-runner") -Recurse
+        Copy-Item -LiteralPath (Join-RepoPath "core") -Destination (Join-Path $tempRepo "core") -Recurse
+
+        $installScript = Join-Path $tempRepo "scripts\install-claude-global.ps1"
+        $firstResult = Invoke-ProcessCapture -FileName $ResolvedPowerShellExe -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installScript, "-ClaudeHome", $tempClaudeHome) -WorkingDirectory $tempRepo
+        if ($firstResult.ExitCode -ne 0) {
+            throw "Claude global install script failed with exit code $($firstResult.ExitCode).`nSTDOUT:`n$($firstResult.Stdout)`nSTDERR:`n$($firstResult.Stderr)"
+        }
+
+        Assert-True (Test-Path -LiteralPath $tempTarget -PathType Container) "Claude global install target was not created: $tempTarget"
+        Assert-True (Test-Path -LiteralPath (Join-Path $tempTarget "SKILL.md") -PathType Leaf) "Claude global install SKILL.md is missing"
+        Assert-True (Test-Path -LiteralPath (Join-Path $tempTarget "core\execution-contract.md") -PathType Leaf) "Claude global install core contract is missing"
+        Assert-True (Test-Path -LiteralPath (Join-Path $tempTarget ".powershell-skills-install.json") -PathType Leaf) "Claude global install marker is missing"
+
+        $globalSkillText = Get-Content -LiteralPath (Join-Path $tempTarget "SKILL.md") -Raw
+        Assert-True ($globalSkillText.Contains('$' + '{CLAUDE_SKILL_DIR}/core/execution-contract.md')) "Claude global install SKILL.md should reference bundled core through CLAUDE_SKILL_DIR"
+        Assert-True (-not $globalSkillText.Contains("../../../core")) "Claude global install SKILL.md must not keep repo-local core references"
+
+        $secondResult = Invoke-ProcessCapture -FileName $ResolvedPowerShellExe -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installScript, "-ClaudeHome", $tempClaudeHome) -WorkingDirectory $tempRepo
+        if ($secondResult.ExitCode -ne 0) {
+            throw "Claude global install script must be idempotent for managed targets.`nSTDOUT:`n$($secondResult.Stdout)`nSTDERR:`n$($secondResult.Stderr)"
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempClaudeHome) {
+            Remove-Item -LiteralPath $tempClaudeHome -Recurse -Force
+        }
+        if (Test-Path -LiteralPath $tempRepo) {
+            Remove-Item -LiteralPath $tempRepo -Recurse -Force
+        }
+    }
+}
+
 $requiredFiles = @(
     ".github\workflows\ci.yml",
     "README.md",
@@ -281,8 +324,10 @@ $requiredFiles = @(
     "core\tests\run-smoke.ps1",
     "adapters\codex\powershell-command-runner\SKILL.md",
     "adapters\codex\powershell-command-runner\agents\openai.yaml",
+    "adapters\claude-code\powershell-command-runner\SKILL.md",
     "scripts\install-codex-local.ps1",
-    "scripts\install-codex-global.ps1"
+    "scripts\install-codex-global.ps1",
+    "scripts\install-claude-global.ps1"
 )
 
 foreach ($relativePath in $requiredFiles) {
@@ -292,7 +337,7 @@ foreach ($relativePath in $requiredFiles) {
 $readmeText = Get-Content -LiteralPath (Join-RepoPath "README.md") -Raw
 $requiredReadmeMarkers = @(
     "# powershell-skills",
-    "## V0.1 Features",
+    "## Features",
     "## Installation",
     "## Triggering",
     "## Compatibility",
@@ -306,6 +351,7 @@ foreach ($marker in $requiredReadmeMarkers) {
 
 Assert-True ($readmeText.Contains("PowerShell 5.1")) "README.md must describe PowerShell 5.1 compatibility"
 Assert-True ($readmeText.Contains("PowerShell 7")) "README.md must describe PowerShell 7 compatibility"
+Assert-True ($readmeText.Contains("Claude Code")) "README.md must describe Claude Code compatibility"
 
 $ciText = Get-Content -LiteralPath (Join-RepoPath ".github\workflows\ci.yml") -Raw
 Assert-True ($ciText.Contains("windows-latest")) "CI workflow must run on windows-latest"
@@ -359,8 +405,31 @@ foreach ($match in $relativeReferenceMatches) {
     Assert-True (Test-Path -LiteralPath $resolvedReference) "Adapter relative reference does not resolve: $($match.Value)"
 }
 
+$claudeAdapterDir = Join-RepoPath "adapters\claude-code\powershell-command-runner"
+$claudeSkillPath = Join-Path $claudeAdapterDir "SKILL.md"
+$claudeSkillText = Get-Content -LiteralPath $claudeSkillPath -Raw
+$claudeFrontMatterMatch = [regex]::Match($claudeSkillText, "\A---\r?\n(?<frontmatter>[\s\S]*?)\r?\n---(?:\r?\n|\z)")
+Assert-True $claudeFrontMatterMatch.Success "Claude adapter SKILL.md must begin with front matter delimited by ---"
+$claudeFrontMatter = $claudeFrontMatterMatch.Groups["frontmatter"].Value
+Assert-True ($claudeFrontMatter -match "(?m)^name:\s*powershell-command-runner\s*$") "Claude adapter SKILL.md front matter is missing expected skill name"
+Assert-True ($claudeFrontMatter -match "(?m)^description:\s*\S") "Claude adapter SKILL.md front matter is missing description metadata"
+Assert-True ($claudeSkillText.Contains("../../../core")) "Claude adapter SKILL.md is missing core relative references"
+Assert-True ($claudeSkillText.Contains("Claude Code")) "Claude adapter SKILL.md must describe Claude Code invocation"
+
+$claudeAdapterCorePath = (Resolve-Path -LiteralPath (Join-Path $claudeAdapterDir "..\..\..\core")).ProviderPath
+Assert-True ($claudeAdapterCorePath -eq $expectedCorePath) "Claude adapter ../../../core does not resolve to repo core"
+
+$claudeRelativeReferenceMatches = [regex]::Matches($claudeSkillText, "\.\./\.\./\.\./core/[A-Za-z0-9._/\-]+")
+Assert-True ($claudeRelativeReferenceMatches.Count -gt 0) "No Claude adapter core relative references found"
+foreach ($match in $claudeRelativeReferenceMatches) {
+    $relativeReference = $match.Value.Replace("/", "\")
+    $resolvedReference = Join-Path $claudeAdapterDir $relativeReference
+    Assert-True (Test-Path -LiteralPath $resolvedReference) "Claude adapter relative reference does not resolve: $($match.Value)"
+}
+
 Test-IsolatedInstall
 Test-IsolatedGlobalInstall
+Test-IsolatedClaudeGlobalInstall
 
 $localSkillPath = Join-RepoPath ".agents\skills\powershell-command-runner"
 if (Test-Path -LiteralPath $localSkillPath) {
@@ -372,4 +441,4 @@ if (Test-Path -LiteralPath $localSkillPath) {
     Assert-True ($localTarget.Equals($expectedLocalTarget, [StringComparison]::OrdinalIgnoreCase)) "Repo-local install target mismatch. Expected=[$expectedLocalTarget] Actual=[$localTarget]"
 }
 
-Write-Output "[OK] V0.1 verification passed"
+Write-Output "[OK] release verification passed"
