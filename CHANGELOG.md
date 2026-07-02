@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## v0.5 - Read-Only PowerShell Helper
+
+Release date: 2026-07-02
+
+- Added `core/scripts/Invoke-AgentPowerShell.ps1`.
+- Added structured JSON execution for allowlisted read-only cmdlets.
+- Added allowlist coverage for `Test-Path`, `Resolve-Path`, `Get-Item`, `Get-ChildItem`, `Get-Content`, `Get-Command`, `Get-Location`, `Get-Process`, `Get-Service`, and `Select-String`.
+- Rejected aliases, functions, unknown cmdlets, unknown parameters, unsupported parameter shapes, and destructive risk.
+- Kept `Invoke-AgentCommand.ps1` Application-only.
+- Added smoke tests for read-only cmdlet success and policy rejection cases on Windows PowerShell 5.1 and PowerShell 7.
+- Updated Codex and Claude Code adapters to route structured read-only cmdlet work to the new helper.
+
 ## v0.4 - npm Distribution and Install UX
 
 Release date: 2026-07-02

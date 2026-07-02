@@ -31,6 +31,8 @@ Classify command risk:
 - Classify repeated failures with `../../../core/scripts/Classify-AgentFailure.ps1`.
 - Use `../../../core/scripts/Invoke-AgentCommand.ps1` when structured stdout, stderr, exit code, timeout, cwd, or environment handling matters.
 - `Invoke-AgentCommand.ps1` V0.1 only runs Application commands; do not use it for PowerShell cmdlets, functions, or aliases; use an explicit command path when env PATH is overridden.
+- Use `../../../core/scripts/Invoke-AgentPowerShell.ps1` when structured output from an allowlisted read-only PowerShell cmdlet matters.
+- `Invoke-AgentPowerShell.ps1` only accepts structured JSON specs and read-only allowlisted cmdlets; do not use it for aliases, functions, free-form scripts, unknown parameters, or destructive risk.
 
 ## Pattern Routing
 

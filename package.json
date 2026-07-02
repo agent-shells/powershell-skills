@@ -1,6 +1,6 @@
 {
   "name": "@agent-shells/powershell-skills",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "PowerShell skills and guardrails for reliable Windows command execution by AI agents.",
   "license": "MIT",
   "bin": {

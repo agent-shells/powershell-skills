@@ -214,6 +214,86 @@ try {
     Assert-Equal $cmdletCommandResult.Data.classification "tool-discovery" "Expected tool-discovery for cmdlet command"
     Assert-True ($cmdletCommandResult.Data.stderr -match "Only Application commands are supported") "Expected Application-only reason for cmdlet command"
 
+    $readOnlyFile = Join-Path $spacePath "read-only-note.txt"
+    Set-Content -LiteralPath $readOnlyFile -Value "read-only-ok" -Encoding UTF8
+
+    $readOnlyTestPathSpecPath = Join-Path $workspace "readonly-test-path.json"
+    Write-JsonSpec @{
+        cmdlet = "Test-Path"
+        parameters = @{ LiteralPath = $readOnlyFile }
+        cwd = $workspace
+        timeout_seconds = 15
+        risk = "normal"
+    } $readOnlyTestPathSpecPath
+    $readOnlyTestPathResult = Invoke-ScriptJson "Invoke-AgentPowerShell.ps1" @("-SpecPath", $readOnlyTestPathSpecPath)
+    Assert-True ($readOnlyTestPathResult.ExitCode -eq 0) "read-only Test-Path should exit 0"
+    Assert-Equal $readOnlyTestPathResult.Data.status "success" "Expected read-only Test-Path success"
+    Assert-Equal $readOnlyTestPathResult.Data.cmdlet "Test-Path" "Expected read-only Test-Path cmdlet"
+    Assert-True ($readOnlyTestPathResult.Data.output[0] -eq $true) "Expected read-only Test-Path output true"
+
+    $readOnlyChildSpecPath = Join-Path $workspace "readonly-child.json"
+    Write-JsonSpec @{
+        cmdlet = "Get-ChildItem"
+        parameters = @{ LiteralPath = $spacePath }
+        cwd = $workspace
+        timeout_seconds = 15
+        risk = "normal"
+    } $readOnlyChildSpecPath
+    $readOnlyChildResult = Invoke-ScriptJson "Invoke-AgentPowerShell.ps1" @("-SpecPath", $readOnlyChildSpecPath)
+    Assert-True ($readOnlyChildResult.ExitCode -eq 0) "read-only Get-ChildItem should exit 0"
+    Assert-Equal $readOnlyChildResult.Data.status "success" "Expected read-only Get-ChildItem success"
+    Assert-True ($readOnlyChildResult.Data.stdout -match "read-only-note.txt") "Expected read-only Get-ChildItem stdout to include file name"
+
+    $readOnlyRemoveSpecPath = Join-Path $workspace "readonly-remove.json"
+    Write-JsonSpec @{
+        cmdlet = "Remove-Item"
+        parameters = @{ LiteralPath = $readOnlyFile }
+        cwd = $workspace
+        timeout_seconds = 15
+        risk = "normal"
+    } $readOnlyRemoveSpecPath
+    $readOnlyRemoveResult = Invoke-ScriptJson "Invoke-AgentPowerShell.ps1" @("-SpecPath", $readOnlyRemoveSpecPath)
+    Assert-True ($readOnlyRemoveResult.ExitCode -eq 1) "read-only Remove-Item should exit 1"
+    Assert-Equal $readOnlyRemoveResult.Data.classification "read-only-policy" "Expected read-only-policy for Remove-Item"
+    Assert-True (Test-Path -LiteralPath $readOnlyFile -PathType Leaf) "read-only Remove-Item must not remove the file"
+
+    $readOnlyAliasSpecPath = Join-Path $workspace "readonly-alias.json"
+    Write-JsonSpec @{
+        cmdlet = "gci"
+        parameters = @{ LiteralPath = $spacePath }
+        cwd = $workspace
+        timeout_seconds = 15
+        risk = "normal"
+    } $readOnlyAliasSpecPath
+    $readOnlyAliasResult = Invoke-ScriptJson "Invoke-AgentPowerShell.ps1" @("-SpecPath", $readOnlyAliasSpecPath)
+    Assert-True ($readOnlyAliasResult.ExitCode -eq 1) "read-only alias should exit 1"
+    Assert-Equal $readOnlyAliasResult.Data.classification "read-only-policy" "Expected read-only-policy for alias"
+    Assert-True ($readOnlyAliasResult.Data.stderr -match "Aliases are not accepted") "Expected alias rejection reason"
+
+    $readOnlyBadParameterSpecPath = Join-Path $workspace "readonly-bad-parameter.json"
+    Write-JsonSpec @{
+        cmdlet = "Test-Path"
+        parameters = @{ LiteralPath = $readOnlyFile; Filter = "*" }
+        cwd = $workspace
+        timeout_seconds = 15
+        risk = "normal"
+    } $readOnlyBadParameterSpecPath
+    $readOnlyBadParameterResult = Invoke-ScriptJson "Invoke-AgentPowerShell.ps1" @("-SpecPath", $readOnlyBadParameterSpecPath)
+    Assert-True ($readOnlyBadParameterResult.ExitCode -eq 1) "read-only unknown parameter should exit 1"
+    Assert-Equal $readOnlyBadParameterResult.Data.classification "read-only-policy" "Expected read-only-policy for unknown parameter"
+
+    $readOnlyDestructiveRiskSpecPath = Join-Path $workspace "readonly-destructive-risk.json"
+    Write-JsonSpec @{
+        cmdlet = "Test-Path"
+        parameters = @{ LiteralPath = $readOnlyFile }
+        cwd = $workspace
+        timeout_seconds = 15
+        risk = "destructive"
+    } $readOnlyDestructiveRiskSpecPath
+    $readOnlyDestructiveRiskResult = Invoke-ScriptJson "Invoke-AgentPowerShell.ps1" @("-SpecPath", $readOnlyDestructiveRiskSpecPath)
+    Assert-True ($readOnlyDestructiveRiskResult.ExitCode -eq 1) "read-only destructive risk should exit 1"
+    Assert-Equal $readOnlyDestructiveRiskResult.Data.classification "destructive-op-risk" "Expected destructive-op-risk for destructive risk"
+
     $badTimeoutPath = Join-Path $workspace "bad-timeout.json"
     Write-JsonSpec @{ command = $PowerShellCommand; args = @("-NoProfile", "-Command", "Write-Output should-not-run"); cwd = $workspace; timeout_seconds = 0 } $badTimeoutPath
     $badTimeoutResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $badTimeoutPath)

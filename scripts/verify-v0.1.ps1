@@ -329,6 +329,7 @@ $requiredFiles = @(
     "core\scripts\Resolve-AgentPath.ps1",
     "core\scripts\Classify-AgentFailure.ps1",
     "core\scripts\Invoke-AgentCommand.ps1",
+    "core\scripts\Invoke-AgentPowerShell.ps1",
     "core\tests\run-smoke.ps1",
     "tests\npm-cli-smoke.js",
     "adapters\codex\powershell-command-runner\SKILL.md",
@@ -342,6 +343,7 @@ $requiredFiles = @(
     "docs\releases\v0.2.md",
     "docs\releases\v0.3.md",
     "docs\releases\v0.4.md",
+    "docs\releases\v0.5.md",
     "scripts\install-codex-local.ps1",
     "scripts\install-codex-global.ps1",
     "scripts\install-claude-global.ps1"
@@ -374,9 +376,11 @@ Assert-True ($readmeText.Contains("docs/releases/v0.1.md")) "README.md must link
 Assert-True ($readmeText.Contains("docs/releases/v0.2.md")) "README.md must link v0.2 release notes"
 Assert-True ($readmeText.Contains("docs/releases/v0.3.md")) "README.md must link v0.3 release notes"
 Assert-True ($readmeText.Contains("docs/releases/v0.4.md")) "README.md must link v0.4 release notes"
+Assert-True ($readmeText.Contains("docs/releases/v0.5.md")) "README.md must link v0.5 release notes"
 Assert-True ($readmeText.Contains("docs/field-tests/README.md")) "README.md must link field tests"
 Assert-True ($readmeText.Contains("powershell-skills doctor")) "README.md must describe doctor UX"
 Assert-True ($readmeText.Contains("powershell-skills update")) "README.md must describe update UX"
+Assert-True ($readmeText.Contains("Invoke-AgentPowerShell.ps1")) "README.md must describe the read-only PowerShell helper"
 
 $licenseText = Get-Content -LiteralPath (Join-RepoPath "LICENSE") -Raw
 Assert-True ($licenseText.Contains("MIT License")) "LICENSE must use the expected MIT license text"
@@ -400,7 +404,7 @@ Assert-True ($cliText.Contains("powershell-skills doctor")) "CLI must include do
 Assert-True ($cliText.Contains("powershell-skills update")) "CLI must include update usage"
 
 $changelogText = Get-Content -LiteralPath (Join-RepoPath "CHANGELOG.md") -Raw
-foreach ($version in @("v0.1", "v0.2", "v0.3", "v0.4")) {
+foreach ($version in @("v0.1", "v0.2", "v0.3", "v0.4", "v0.5")) {
     Assert-True ($changelogText.Contains($version)) "CHANGELOG.md must document $version"
 }
 

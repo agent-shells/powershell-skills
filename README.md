@@ -10,6 +10,7 @@ This project exists because general-purpose coding agents often handle Windows a
 - V0.2: Windows PowerShell 5.1 and PowerShell 7 compatibility matrix with GitHub Actions CI.
 - V0.3: Claude Code skill adapter and global Claude Code installer.
 - V0.4: npm package metadata, `powershell-skills` CLI, global install UX, explicit update UX, and doctor diagnostics.
+- V0.5: constrained read-only PowerShell cmdlet helper for allowlisted cmdlets.
 
 Release notes:
 
@@ -17,6 +18,7 @@ Release notes:
 - [v0.2](docs/releases/v0.2.md)
 - [v0.3](docs/releases/v0.3.md)
 - [v0.4](docs/releases/v0.4.md)
+- [v0.5](docs/releases/v0.5.md)
 
 ## Features
 
@@ -37,6 +39,7 @@ Release notes:
   - `Resolve-AgentPath.ps1`: path resolution for spaces, non-ASCII names, and `-LiteralPath` usage.
   - `Classify-AgentFailure.ps1`: maps common error text to failure classes.
   - `Invoke-AgentCommand.ps1`: spec-driven Application command runner with JSON result output, cwd/env handling, UTF-8 stdout/stderr capture, timeout handling, process-tree cleanup, argument validation, and destructive-risk blocking.
+  - `Invoke-AgentPowerShell.ps1`: spec-driven, read-only PowerShell cmdlet helper for allowlisted cmdlets such as `Test-Path`, `Get-ChildItem`, `Get-Content`, `Get-Command`, and `Select-String`.
 - npm CLI: `bin/powershell-skills.js`
   - `powershell-skills install codex`: installs the Codex global skill.
   - `powershell-skills install claude-code`: installs the Claude Code global skill.
@@ -62,7 +65,7 @@ V0.4 adds an npm CLI. The PowerShell scripts remain the source of truth; npm is 
 Install from GitHub through npm:
 
 ```powershell
-npm install -g github:agent-shells/powershell-skills#v0.4
+npm install -g github:agent-shells/powershell-skills#v0.5
 powershell-skills install all
 powershell-skills doctor
 ```
@@ -167,6 +170,7 @@ The core scripts are tested on both Windows PowerShell 5.1 and PowerShell 7 thro
 - PowerShell 7: verified through `pwsh`.
 - Helper scripts avoid PowerShell 7-only syntax.
 - `Invoke-AgentCommand.ps1` can run either PowerShell host as an Application command when it is explicitly requested.
+- `Invoke-AgentPowerShell.ps1` is tested on both hosts and only runs allowlisted read-only cmdlets from structured JSON specs.
 - The npm CLI is a dispatch layer and does not replace the PowerShell compatibility matrix.
 
 ## Verification
@@ -238,6 +242,7 @@ True
 - npm registry publishing requires a maintainer npm login. Until the registry package is published, install from GitHub through npm or from a cloned checkout.
 - Updates are explicit. There is no background auto-update service.
 - `Invoke-AgentCommand.ps1` V0.1 runs Application commands only. It intentionally rejects PowerShell cmdlets, functions, and aliases. Use normal PowerShell syntax directly for cmdlets.
+- `Invoke-AgentPowerShell.ps1` V0.5 is intentionally read-only and allowlist-based. It is not a general PowerShell script runner and does not execute aliases, functions, unknown cmdlets, unknown parameters, or destructive risk.
 - Destructive command execution is not automated. Destructive risk requires explicit validation outside the runner.
 - There is no failure-experience upload feature, no automatic telemetry, no periodic collection, and no upload of user command context.
 - Open-source developer contributions are welcome through normal reviewed issues and pull requests.
