@@ -14,6 +14,7 @@ Release date: 2026-07-02
 - Added smoke tests for read-only cmdlet success and policy rejection cases on Windows PowerShell 5.1 and PowerShell 7.
 - Updated Codex and Claude Code adapters to route structured read-only cmdlet work to the new helper.
 - Fixed Windows npm CLI dispatch so `doctor` and `update` handle npm's `.cmd` shim correctly.
+- Published the package to the npm registry as `@agent-shells/powershell-skills`.
 
 ## v0.4 - npm Distribution and Install UX
 

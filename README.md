@@ -60,20 +60,18 @@ Release notes:
 
 ## Installation
 
-V0.4 adds an npm CLI. The PowerShell scripts remain the source of truth; npm is used for distribution and command UX.
-
-Install from GitHub through npm:
+The npm registry package is the recommended install path. The PowerShell scripts remain the source of truth; npm is used for distribution and command UX.
 
 ```powershell
-npm install -g github:agent-shells/powershell-skills#v0.5
+npm install -g @agent-shells/powershell-skills
 powershell-skills install all
 powershell-skills doctor
 ```
 
-After the package is published to the npm registry, use:
+Install from GitHub through npm when you need an unreleased tag or branch:
 
 ```powershell
-npm install -g @agent-shells/powershell-skills
+npm install -g github:agent-shells/powershell-skills#v0.5
 powershell-skills install all
 powershell-skills doctor
 ```
@@ -239,7 +237,7 @@ True
 ## Current Limits
 
 - Supported adapters are Codex and Claude Code. Other agent adapters are not implemented yet.
-- npm registry publishing requires a maintainer npm login. Until the registry package is published, install from GitHub through npm or from a cloned checkout.
+- The npm registry package is published as `@agent-shells/powershell-skills`.
 - Updates are explicit. There is no background auto-update service.
 - `Invoke-AgentCommand.ps1` V0.1 runs Application commands only. It intentionally rejects PowerShell cmdlets, functions, and aliases. Use normal PowerShell syntax directly for cmdlets.
 - `Invoke-AgentPowerShell.ps1` V0.5 is intentionally read-only and allowlist-based. It is not a general PowerShell script runner and does not execute aliases, functions, unknown cmdlets, unknown parameters, or destructive risk.
