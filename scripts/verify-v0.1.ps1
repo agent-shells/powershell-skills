@@ -219,6 +219,50 @@ function Test-IsolatedInstall {
     }
 }
 
+function Test-IsolatedGlobalInstall {
+    $tempRepo = Join-Path ([IO.Path]::GetTempPath()) ("powershell-skills-global-repo-" + [guid]::NewGuid().ToString("N"))
+    $tempCodexHome = Join-Path ([IO.Path]::GetTempPath()) ("powershell-skills-codex-home-" + [guid]::NewGuid().ToString("N"))
+    $tempTarget = Join-Path $tempCodexHome "skills\powershell-command-runner"
+
+    try {
+        New-Item -ItemType Directory -Path (Join-Path $tempRepo "scripts") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $tempRepo "adapters\codex") -Force | Out-Null
+
+        Copy-Item -LiteralPath (Join-RepoPath "scripts\install-codex-global.ps1") -Destination (Join-Path $tempRepo "scripts\install-codex-global.ps1")
+        Copy-Item -LiteralPath (Join-RepoPath "adapters\codex\powershell-command-runner") -Destination (Join-Path $tempRepo "adapters\codex\powershell-command-runner") -Recurse
+        Copy-Item -LiteralPath (Join-RepoPath "core") -Destination (Join-Path $tempRepo "core") -Recurse
+
+        $installScript = Join-Path $tempRepo "scripts\install-codex-global.ps1"
+        $firstResult = Invoke-ProcessCapture -FileName "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installScript, "-CodexHome", $tempCodexHome) -WorkingDirectory $tempRepo
+        if ($firstResult.ExitCode -ne 0) {
+            throw "Global install script failed with exit code $($firstResult.ExitCode).`nSTDOUT:`n$($firstResult.Stdout)`nSTDERR:`n$($firstResult.Stderr)"
+        }
+
+        Assert-True (Test-Path -LiteralPath $tempTarget -PathType Container) "Global install target was not created: $tempTarget"
+        Assert-True (Test-Path -LiteralPath (Join-Path $tempTarget "SKILL.md") -PathType Leaf) "Global install SKILL.md is missing"
+        Assert-True (Test-Path -LiteralPath (Join-Path $tempTarget "agents\openai.yaml") -PathType Leaf) "Global install openai.yaml is missing"
+        Assert-True (Test-Path -LiteralPath (Join-Path $tempTarget "core\execution-contract.md") -PathType Leaf) "Global install core contract is missing"
+        Assert-True (Test-Path -LiteralPath (Join-Path $tempTarget ".powershell-skills-install.json") -PathType Leaf) "Global install marker is missing"
+
+        $globalSkillText = Get-Content -LiteralPath (Join-Path $tempTarget "SKILL.md") -Raw
+        Assert-True ($globalSkillText.Contains("core/execution-contract.md")) "Global install SKILL.md should reference bundled core"
+        Assert-True (-not $globalSkillText.Contains("../../../core")) "Global install SKILL.md must not keep repo-local core references"
+
+        $secondResult = Invoke-ProcessCapture -FileName "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installScript, "-CodexHome", $tempCodexHome) -WorkingDirectory $tempRepo
+        if ($secondResult.ExitCode -ne 0) {
+            throw "Global install script must be idempotent for managed targets.`nSTDOUT:`n$($secondResult.Stdout)`nSTDERR:`n$($secondResult.Stderr)"
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempCodexHome) {
+            Remove-Item -LiteralPath $tempCodexHome -Recurse -Force
+        }
+        if (Test-Path -LiteralPath $tempRepo) {
+            Remove-Item -LiteralPath $tempRepo -Recurse -Force
+        }
+    }
+}
+
 $requiredFiles = @(
     "README.md",
     "core\execution-contract.md",
@@ -228,7 +272,9 @@ $requiredFiles = @(
     "core\scripts\Invoke-AgentCommand.ps1",
     "core\tests\run-smoke.ps1",
     "adapters\codex\powershell-command-runner\SKILL.md",
-    "adapters\codex\powershell-command-runner\agents\openai.yaml"
+    "adapters\codex\powershell-command-runner\agents\openai.yaml",
+    "scripts\install-codex-local.ps1",
+    "scripts\install-codex-global.ps1"
 )
 
 foreach ($relativePath in $requiredFiles) {
@@ -298,6 +344,7 @@ foreach ($match in $relativeReferenceMatches) {
 }
 
 Test-IsolatedInstall
+Test-IsolatedGlobalInstall
 
 $localSkillPath = Join-RepoPath ".agents\skills\powershell-command-runner"
 if (Test-Path -LiteralPath $localSkillPath) {

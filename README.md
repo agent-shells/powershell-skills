@@ -26,37 +26,56 @@ This project exists because general-purpose coding agents often handle Windows a
 - Verification suite:
   - `core/tests/run-smoke.ps1` runs behavioral smoke tests for helpers.
   - `scripts/verify-v0.1.ps1` checks the publishable repo layout, skill metadata, install path, smoke tests, and README release sections.
+- Installers:
+  - `scripts/install-codex-global.ps1` installs a self-contained user-level Codex skill under `~/.codex/skills`.
+  - `scripts/install-codex-local.ps1` installs a repo-local development skill under `.agents/skills`.
 
 ## Installation
 
-V0.1 provides a repo-local Codex development install. It does not publish an npm package yet.
+V0.1 provides a global Codex install and a repo-local development install. It does not publish an npm package yet.
+
+Recommended global install:
 
 ```powershell
 git clone https://github.com/agent-shells/powershell-skills.git
 cd powershell-skills
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-codex-global.ps1
+```
+
+The global installer creates a self-contained copy at:
+
+```text
+%USERPROFILE%\.codex\skills\powershell-command-runner
+```
+
+It bundles the `core/` catalog inside the installed skill so relative references work from the global Codex skill directory. Restart Codex or start a new session after installation so the skill index refreshes.
+
+Repo-local development install:
+
+```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-codex-local.ps1
 ```
 
-The installer creates this junction:
+The local installer creates this junction:
 
 ```text
 .agents\skills\powershell-command-runner -> adapters\codex\powershell-command-runner
 ```
 
-Start Codex from the repository root so the repo-local `.agents` skill is discoverable.
+Use the repo-local install when developing the skill from this checkout. Use the global install when you want Codex to discover the skill from other Windows projects.
 
 ## Triggering
 
 The Codex adapter is designed to be used by agents, not by humans typing special commands before every task.
 
-The skill front matter says to use it whenever Codex is operating on Windows, PowerShell, Windows shell tasks, external CLIs, Windows paths, encoding-sensitive output, filesystem operations, or command failure debugging. The OpenAI adapter metadata also enables implicit invocation:
+The global install places the skill in Codex's user-level skill directory. Future Codex sessions can discover it outside this repository. The skill front matter says to use it whenever Codex is operating on Windows, PowerShell, Windows shell tasks, external CLIs, Windows paths, encoding-sensitive output, filesystem operations, or command failure debugging. The OpenAI adapter metadata also enables implicit invocation:
 
 ```yaml
 policy:
   allow_implicit_invocation: true
 ```
 
-If automatic discovery does not happen in a given agent surface, use this explicit prompt:
+If automatic discovery does not happen in a current session, restart Codex or start a new session. If a given agent surface still does not honor implicit invocation, use this explicit prompt:
 
 ```text
 Use $powershell-command-runner when working in Windows or PowerShell shell environments.
@@ -97,10 +116,22 @@ Expected result:
 [OK] V0.1 verification passed
 ```
 
+Verify global installation on the current machine:
+
+```powershell
+Test-Path "$env:USERPROFILE\.codex\skills\powershell-command-runner\SKILL.md"
+```
+
+Expected result:
+
+```text
+True
+```
+
 ## Current Limits
 
 - Codex is the first supported adapter. Claude Code and other agent adapters are planned, but not implemented in V0.1.
-- No npm package, installer package, or auto-update channel exists yet.
+- No npm package, installer package, or auto-update channel exists yet. Update by pulling the repo and re-running `scripts/install-codex-global.ps1`.
 - `Invoke-AgentCommand.ps1` V0.1 runs Application commands only. It intentionally rejects PowerShell cmdlets, functions, and aliases. Use normal PowerShell syntax directly for cmdlets.
 - Destructive command execution is not automated. Destructive risk requires explicit validation outside the runner.
 - Failure contribution is local-only in V0.1. There is no automatic telemetry, no periodic collection, and no upload of user failures.
@@ -122,7 +153,7 @@ scripts/verify-v0.1.ps1                    V0.1 release verification
 
 ## Roadmap
 
-- Add a packaged distribution channel after the repo-local install proves stable.
+- Add a packaged distribution channel after the global installer proves stable.
 - Add PowerShell 7 verification alongside Windows PowerShell 5.1.
 - Add adapters for other agent surfaces without duplicating the core catalog.
 - Grow the failure corpus through reviewed, sanitized issues and pull requests.
