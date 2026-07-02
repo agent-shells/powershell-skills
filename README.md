@@ -32,7 +32,7 @@ This project exists because general-purpose coding agents often handle Windows a
 V0.1 provides a repo-local Codex development install. It does not publish an npm package yet.
 
 ```powershell
-git clone https://github.com/chengxu199501/powershell-skills.git
+git clone https://github.com/agent-shells/powershell-skills.git
 cd powershell-skills
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-codex-local.ps1
 ```
