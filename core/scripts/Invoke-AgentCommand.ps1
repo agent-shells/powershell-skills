@@ -84,13 +84,25 @@ function Write-ErrorResult {
     Write-JsonResult $result $ProcessExitCode
 }
 
+function Get-CurrentPowerShellHostPath {
+    try {
+        $currentProcess = Get-Process -Id $PID -ErrorAction Stop
+        if ($currentProcess.Path -and (Test-Path -LiteralPath $currentProcess.Path -PathType Leaf)) {
+            return [string]$currentProcess.Path
+        }
+    }
+    catch {}
+
+    return "powershell.exe"
+}
+
 function Classify-Text {
     param([AllowNull()][string]$Text, [int]$Code)
 
     if ($null -eq $Text) { $Text = "" }
     $classifier = Join-Path $ScriptRoot "Classify-AgentFailure.ps1"
     try {
-        $raw = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $classifier -ErrorText $Text -ExitCode $Code 2>&1
+        $raw = & (Get-CurrentPowerShellHostPath) -NoProfile -ExecutionPolicy Bypass -File $classifier -ErrorText $Text -ExitCode $Code 2>&1
         $json = ($raw | Out-String).Trim()
         if (-not $json) { return "unknown" }
         return ($json | ConvertFrom-Json).classification
@@ -155,7 +167,7 @@ function Test-CommandWithHelper {
 
     $helper = Join-Path $ScriptRoot "Test-AgentCommand.ps1"
     try {
-        $raw = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $helper -Command $Command 2>&1
+        $raw = & (Get-CurrentPowerShellHostPath) -NoProfile -ExecutionPolicy Bypass -File $helper -Command $Command 2>&1
         $helperExitCode = $LASTEXITCODE
         $json = ($raw | Out-String).Trim()
         if (-not $json) {
@@ -186,6 +198,11 @@ function Test-CommandWithHelper {
 function Get-SpecProperty {
     param($Spec, [string]$Name)
 
+    if ($Spec -is [System.Collections.IDictionary]) {
+        if (-not $Spec.ContainsKey($Name)) { return $null }
+        return $Spec[$Name]
+    }
+
     $property = $Spec.PSObject.Properties[$Name]
     if ($null -eq $property) { return $null }
     return $property.Value
@@ -193,6 +210,10 @@ function Get-SpecProperty {
 
 function Test-SpecProperty {
     param($Spec, [string]$Name)
+
+    if ($Spec -is [System.Collections.IDictionary]) {
+        return $Spec.ContainsKey($Name)
+    }
 
     return ($null -ne $Spec.PSObject.Properties[$Name])
 }
@@ -210,9 +231,21 @@ function Test-JsonScalarArgumentValue {
 function ConvertFrom-SpecJsonForShape {
     param([string]$JsonText)
 
-    Add-Type -AssemblyName System.Web.Extensions
-    $serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
-    return $serializer.DeserializeObject($JsonText)
+    try {
+        Add-Type -AssemblyName System.Web.Extensions
+        $serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+        return $serializer.DeserializeObject($JsonText)
+    }
+    catch {
+        return ($JsonText | ConvertFrom-Json)
+    }
+}
+
+function Test-RawJsonPropertyIsEmptyArray {
+    param([string]$JsonText, [string]$Name)
+
+    $escapedName = [regex]::Escape($Name)
+    return ($JsonText -match ('"' + $escapedName + '"\s*:\s*\[\s*\]'))
 }
 
 function Test-CommandPathLike {
@@ -644,8 +677,11 @@ if ([string]::IsNullOrWhiteSpace($command)) {
 }
 
 $commandArgs = @()
-if ($specJsonShape.ContainsKey("args")) {
-    $argsValue = $specJsonShape["args"]
+if (Test-SpecProperty -Spec $specJsonShape -Name "args") {
+    $argsValue = Get-SpecProperty -Spec $specJsonShape -Name "args"
+    if ($null -eq $argsValue -and (Test-RawJsonPropertyIsEmptyArray -JsonText $specText -Name "args")) {
+        $argsValue = @()
+    }
     if ($null -eq $argsValue -or $argsValue -isnot [array]) {
         Write-ErrorResult -Message "args must be a JSON array of scalar values" -Classification "unknown" -TimeoutSeconds $timeout -Cwd $cwd -Risk $risk -Command $command
     }

@@ -26,6 +26,7 @@ This project exists because general-purpose coding agents often handle Windows a
 - Verification suite:
   - `core/tests/run-smoke.ps1` runs behavioral smoke tests for helpers.
   - `scripts/verify-v0.1.ps1` checks the publishable repo layout, skill metadata, install path, smoke tests, and README release sections.
+  - `.github/workflows/ci.yml` runs the verification suite on Windows PowerShell 5.1 and PowerShell 7.
 - Installers:
   - `scripts/install-codex-global.ps1` installs a self-contained user-level Codex skill under `~/.codex/skills`.
   - `scripts/install-codex-local.ps1` installs a repo-local development skill under `.agents/skills`.
@@ -83,12 +84,12 @@ Use $powershell-command-runner when working in Windows or PowerShell shell envir
 
 ## Compatibility
 
-V0.1 is written for Windows PowerShell compatibility and is verified through `powershell.exe`.
+The core scripts are tested on both Windows PowerShell 5.1 and PowerShell 7 through GitHub Actions on `windows-latest`.
 
-- Primary verified runtime: Windows PowerShell 5.1 through `powershell.exe`.
-- PowerShell 7: intended compatibility target, but not yet covered by a full V0.1 verification matrix.
+- Windows PowerShell 5.1: verified through `powershell.exe`.
+- PowerShell 7: verified through `pwsh`.
 - Helper scripts avoid PowerShell 7-only syntax.
-- `Invoke-AgentCommand.ps1` can run `pwsh.exe` as an Application command if it is installed and explicitly requested, but the helper itself should be invoked with `powershell.exe` for V0.1 verification.
+- `Invoke-AgentCommand.ps1` can run either PowerShell host as an Application command when it is explicitly requested.
 
 ## Verification
 
@@ -96,6 +97,7 @@ Run the smoke tests:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\core\tests\run-smoke.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\core\tests\run-smoke.ps1 -PowerShellExe pwsh
 ```
 
 Expected result:
@@ -108,6 +110,7 @@ Run the V0.1 release verification:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-v0.1.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-v0.1.ps1 -PowerShellExe pwsh
 ```
 
 Expected result:
@@ -134,8 +137,9 @@ True
 - No npm package, installer package, or auto-update channel exists yet. Update by pulling the repo and re-running `scripts/install-codex-global.ps1`.
 - `Invoke-AgentCommand.ps1` V0.1 runs Application commands only. It intentionally rejects PowerShell cmdlets, functions, and aliases. Use normal PowerShell syntax directly for cmdlets.
 - Destructive command execution is not automated. Destructive risk requires explicit validation outside the runner.
-- Failure contribution is local-only in V0.1. There is no automatic telemetry, no periodic collection, and no upload of user failures.
-- The failure corpus accepts only sanitized, minimized, reviewed cases. Raw logs, secrets, private paths, private repository names, and tokens do not belong in the corpus.
+- There is no failure-experience upload feature, no automatic telemetry, no periodic collection, and no upload of user command context.
+- Open-source developer contributions are welcome through normal reviewed issues and pull requests.
+- The failure corpus accepts only maintainer-reviewed, sanitized, minimized cases. Raw logs, secrets, private paths, private repository names, and tokens do not belong in the corpus.
 - This project does not bypass Codex, OS, shell, GitHub, or workspace permission rules.
 
 ## Project Layout
@@ -147,6 +151,8 @@ core/pattern-catalog/                      Reusable PowerShell/Windows failure p
 core/scripts/                              JSON-oriented helper scripts
 core/failure-corpus/                       Sanitized failure evidence and schema
 core/tests/run-smoke.ps1                   Helper behavior smoke tests
+.github/workflows/ci.yml                   Windows PowerShell 5.1 and PowerShell 7 CI
+scripts/install-codex-global.ps1           Global Codex skill install
 scripts/install-codex-local.ps1            Repo-local Codex skill install
 scripts/verify-v0.1.ps1                    V0.1 release verification
 ```
@@ -154,7 +160,6 @@ scripts/verify-v0.1.ps1                    V0.1 release verification
 ## Roadmap
 
 - Add a packaged distribution channel after the global installer proves stable.
-- Add PowerShell 7 verification alongside Windows PowerShell 5.1.
 - Add adapters for other agent surfaces without duplicating the core catalog.
-- Grow the failure corpus through reviewed, sanitized issues and pull requests.
+- Add Claude Code compatibility.
 - Promote repeated failure cases into tests before adding new rules.

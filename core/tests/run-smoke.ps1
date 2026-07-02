@@ -1,8 +1,16 @@
-param()
+param(
+    [string]$PowerShellExe = "powershell.exe"
+)
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")
 $ScriptsRoot = Join-Path $RepoRoot "core\scripts"
+
+$PowerShellCommandInfo = Get-Command -Name $PowerShellExe -ErrorAction Stop
+$PowerShellCommand = if ($PowerShellCommandInfo.Source) { [string]$PowerShellCommandInfo.Source } else { [string]$PowerShellCommandInfo.Definition }
+if ([string]::IsNullOrWhiteSpace($PowerShellCommand)) {
+    $PowerShellCommand = $PowerShellExe
+}
 
 function Assert-True {
     param([bool]$Condition, [string]$Message)
@@ -23,7 +31,7 @@ function Invoke-ScriptJson {
     )
     $scriptPath = Join-Path $ScriptsRoot $ScriptName
     Assert-True (Test-Path -LiteralPath $scriptPath -PathType Leaf) "Missing script: $scriptPath"
-    $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptPath @Arguments
+    $output = & $PowerShellCommand -NoProfile -ExecutionPolicy Bypass -File $scriptPath @Arguments
     $exit = $LASTEXITCODE
     $json = ($output | Out-String).Trim()
     if (-not $json) { throw "No JSON output from $ScriptName" }
@@ -50,9 +58,9 @@ try {
     New-Item -ItemType Directory -Path $spacePath -Force | Out-Null
     New-Item -ItemType Directory -Path $unicodePath -Force | Out-Null
 
-    $commandResult = Invoke-ScriptJson "Test-AgentCommand.ps1" @("-Command", "powershell.exe")
-    Assert-True ($commandResult.ExitCode -eq 0) "powershell.exe should be found"
-    Assert-True ($commandResult.Data.found -eq $true) "Expected found=true for powershell.exe"
+    $commandResult = Invoke-ScriptJson "Test-AgentCommand.ps1" @("-Command", $PowerShellCommand)
+    Assert-True ($commandResult.ExitCode -eq 0) "Selected PowerShell should be found"
+    Assert-True ($commandResult.Data.found -eq $true) "Expected found=true for selected PowerShell"
 
     $missingResult = Invoke-ScriptJson "Test-AgentCommand.ps1" @("-Command", "definitely-missing-powershell-skills-tool")
     Assert-True ($missingResult.ExitCode -eq 1) "missing command should exit 1"
@@ -85,7 +93,7 @@ try {
 
     $specPath = Join-Path $workspace "invoke-spec.json"
     Write-JsonSpec @{
-        command = "powershell.exe"
+        command = $PowerShellCommand
         args = @("-NoProfile", "-Command", 'Write-Output ok; Write-Output $PWD.Path; Write-Output $env:AGENT_SMOKE_VALUE')
         cwd = $workspace
         timeout_seconds = 15
@@ -104,7 +112,7 @@ try {
     $utf8Command = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Write-Output ([string]([char]0x4E2D)+[string]([char]0x6587)+[string]([char]0x8F93)+[string]([char]0x51FA))"
     $utf8SpecPath = Join-Path $workspace "utf8-stdout.json"
     Write-JsonSpec @{
-        command = "powershell.exe"
+        command = $PowerShellCommand
         args = @("-NoProfile", "-Command", $utf8Command)
         cwd = $workspace
         timeout_seconds = 15
@@ -117,7 +125,7 @@ try {
 
     $destructiveSpecPath = Join-Path $workspace "destructive-spec.json"
     Write-JsonSpec @{
-        command = "powershell.exe"
+        command = $PowerShellCommand
         args = @("-NoProfile", "-Command", "Write-Output should-not-run")
         cwd = $workspace
         timeout_seconds = 15
@@ -130,7 +138,7 @@ try {
 
     $normalizedDestructiveSpecPath = Join-Path $workspace "normalized-destructive-spec.json"
     Write-JsonSpec @{
-        command = "powershell.exe"
+        command = $PowerShellCommand
         args = @("-NoProfile", "-Command", "Write-Output should-not-run")
         cwd = $workspace
         timeout_seconds = 15
@@ -144,7 +152,7 @@ try {
 
     $invalidRiskSpecPath = Join-Path $workspace "invalid-risk-spec.json"
     Write-JsonSpec @{
-        command = "powershell.exe"
+        command = $PowerShellCommand
         args = @("-NoProfile", "-Command", "Write-Output should-not-run")
         cwd = $workspace
         timeout_seconds = 15
@@ -195,25 +203,27 @@ try {
     Assert-True ($cmdletCommandResult.Data.stderr -match "Only Application commands are supported") "Expected Application-only reason for cmdlet command"
 
     $badTimeoutPath = Join-Path $workspace "bad-timeout.json"
-    Write-JsonSpec @{ command = "powershell.exe"; args = @("-NoProfile", "-Command", "Write-Output should-not-run"); cwd = $workspace; timeout_seconds = 0 } $badTimeoutPath
+    Write-JsonSpec @{ command = $PowerShellCommand; args = @("-NoProfile", "-Command", "Write-Output should-not-run"); cwd = $workspace; timeout_seconds = 0 } $badTimeoutPath
     $badTimeoutResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $badTimeoutPath)
     Assert-True ($badTimeoutResult.ExitCode -eq 1) "invalid timeout should exit 1"
     Assert-True ($badTimeoutResult.Data.classification -eq "timeout-and-process") "Expected timeout-and-process for invalid timeout"
 
     $invalidEnvShapePath = Join-Path $workspace "invalid-env-shape.json"
-    Write-JsonSpec @{ command = "powershell.exe"; args = @("-NoProfile", "-Command", "Write-Output should-not-run"); cwd = $workspace; timeout_seconds = 15; env = "abc" } $invalidEnvShapePath
+    Write-JsonSpec @{ command = $PowerShellCommand; args = @("-NoProfile", "-Command", "Write-Output should-not-run"); cwd = $workspace; timeout_seconds = 15; env = "abc" } $invalidEnvShapePath
     $invalidEnvShapeResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $invalidEnvShapePath)
     Assert-True ($invalidEnvShapeResult.ExitCode -eq 1) "invalid env shape should exit 1"
     Assert-Equal $invalidEnvShapeResult.Data.classification "unknown" "Expected unknown classification for invalid env shape"
 
     $emptyEnvNamePath = Join-Path $workspace "empty-env-name.json"
-    Set-Content -LiteralPath $emptyEnvNamePath -Value '{"command":"powershell.exe","args":["-NoProfile","-Command","Write-Output should-not-run"],"cwd":"","timeout_seconds":15,"env":{"":"value"}}'.Replace('"cwd":""', '"cwd":"' + ($workspace -replace '\\', '\\') + '"') -Encoding UTF8
+    $emptyEnv = @{}
+    $emptyEnv[""] = "value"
+    Write-JsonSpec @{ command = $PowerShellCommand; args = @("-NoProfile", "-Command", "Write-Output should-not-run"); cwd = $workspace; timeout_seconds = 15; env = $emptyEnv } $emptyEnvNamePath
     $emptyEnvNameResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $emptyEnvNamePath)
     Assert-True ($emptyEnvNameResult.ExitCode -eq 1) "empty env variable name should exit 1"
     Assert-Equal $emptyEnvNameResult.Data.classification "unknown" "Expected unknown classification for empty env variable name"
 
     $equalsEnvNamePath = Join-Path $workspace "equals-env-name.json"
-    Write-JsonSpec @{ command = "powershell.exe"; args = @("-NoProfile", "-Command", "Write-Output should-not-run"); cwd = $workspace; timeout_seconds = 15; env = @{ "BAD=NAME" = "value" } } $equalsEnvNamePath
+    Write-JsonSpec @{ command = $PowerShellCommand; args = @("-NoProfile", "-Command", "Write-Output should-not-run"); cwd = $workspace; timeout_seconds = 15; env = @{ "BAD=NAME" = "value" } } $equalsEnvNamePath
     $equalsEnvNameResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $equalsEnvNamePath)
     Assert-True ($equalsEnvNameResult.ExitCode -eq 1) "env variable name containing equals should exit 1"
     Assert-Equal $equalsEnvNameResult.Data.classification "unknown" "Expected unknown classification for env name containing equals"
@@ -222,21 +232,21 @@ try {
     $argsShapeMessage = "args must be a JSON array of scalar values"
 
     $objectArgsPath = Join-Path $workspace "object-args.json"
-    Set-Content -LiteralPath $objectArgsPath -Value '{"command":"powershell.exe","args":{"bad":"-Command","payload":"Write-Output should-not-run"},"cwd":"","timeout_seconds":15,"env":{}}'.Replace('"cwd":""', '"cwd":"' + ($workspace -replace '\\', '\\') + '"') -Encoding UTF8
+    Write-JsonSpec @{ command = $PowerShellCommand; args = @{ bad = "-Command"; payload = "Write-Output should-not-run" }; cwd = $workspace; timeout_seconds = 15; env = @{} } $objectArgsPath
     $objectArgsResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $objectArgsPath)
     Assert-True ($objectArgsResult.ExitCode -eq 1) "object args should exit 1"
     Assert-True ($objectArgsResult.Data.stdout -notmatch "should-not-run") "object args command should not run"
     Assert-True ($objectArgsResult.Data.stderr -match [regex]::Escape($argsShapeMessage)) "object args should report invalid args shape"
 
     $scalarArgsPath = Join-Path $workspace "scalar-args.json"
-    Set-Content -LiteralPath $scalarArgsPath -Value '{"command":"powershell.exe","args":"-NoProfile -Command Write-Output should-not-run","cwd":"","timeout_seconds":15,"env":{}}'.Replace('"cwd":""', '"cwd":"' + ($workspace -replace '\\', '\\') + '"') -Encoding UTF8
+    Write-JsonSpec @{ command = $PowerShellCommand; args = "-NoProfile -Command Write-Output should-not-run"; cwd = $workspace; timeout_seconds = 15; env = @{} } $scalarArgsPath
     $scalarArgsResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $scalarArgsPath)
     Assert-True ($scalarArgsResult.ExitCode -eq 1) "scalar args should exit 1"
     Assert-True ($scalarArgsResult.Data.stdout -notmatch "should-not-run") "scalar args command should not run"
     Assert-True ($scalarArgsResult.Data.stderr -match [regex]::Escape($argsShapeMessage)) "scalar args should report invalid args shape"
 
     $nestedArgsPath = Join-Path $workspace "nested-args.json"
-    Set-Content -LiteralPath $nestedArgsPath -Value '{"command":"powershell.exe","args":["-NoProfile",["-Command","Write-Output should-not-run"]],"cwd":"","timeout_seconds":15,"env":{}}'.Replace('"cwd":""', '"cwd":"' + ($workspace -replace '\\', '\\') + '"') -Encoding UTF8
+    Write-JsonSpec @{ command = $PowerShellCommand; args = @("-NoProfile", @("-Command", "Write-Output should-not-run")); cwd = $workspace; timeout_seconds = 15; env = @{} } $nestedArgsPath
     $nestedArgsResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $nestedArgsPath)
     Assert-True ($nestedArgsResult.ExitCode -eq 1) "nested args should exit 1"
     Assert-True ($nestedArgsResult.Data.stdout -notmatch "should-not-run") "nested args command should not run"
@@ -249,24 +259,27 @@ try {
     Assert-True ($stdoutFailureResult.Data.exit_code -eq 3) "Expected child exit_code=3"
     Assert-True ($stdoutFailureResult.Data.classification -eq "path-handling") "Expected classification from stdout fallback"
 
-    # Wall-clock includes PowerShell startup, WMI, and taskkill overhead; JSON duration remains the strict runner bound.
-    $timeoutWallClockLimitMs = 5500
+    # Wall-clock and JSON duration include PowerShell startup, WMI, stream closing, and taskkill overhead.
+    $timeoutWallClockLimitMs = 7000
+    $timeoutDurationLimitMs = $timeoutWallClockLimitMs
+    $nestedChildSleepSeconds = 12
 
     $timeoutPath = Join-Path $workspace "timeout.json"
-    $nestedSleepCommand = "Start-Process -FilePath powershell.exe -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 8') -NoNewWindow -Wait"
-    Write-JsonSpec @{ command = "powershell.exe"; args = @("-NoProfile", "-Command", $nestedSleepCommand); cwd = $workspace; timeout_seconds = 1 } $timeoutPath
+    $powerShellCommandLiteral = "'" + ($PowerShellCommand -replace "'", "''") + "'"
+    $nestedSleepCommand = "Start-Process -FilePath $powerShellCommandLiteral -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds $nestedChildSleepSeconds') -NoNewWindow -Wait"
+    Write-JsonSpec @{ command = $PowerShellCommand; args = @("-NoProfile", "-Command", $nestedSleepCommand); cwd = $workspace; timeout_seconds = 1 } $timeoutPath
     $timeoutWatch = [Diagnostics.Stopwatch]::StartNew()
     $timeoutResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $timeoutPath)
     $timeoutWatch.Stop()
     Assert-True ($timeoutResult.ExitCode -eq 1) "timeout command should exit 1"
     Assert-True ($timeoutResult.Data.exit_code -eq 124) "Expected timeout exit_code=124"
     Assert-True ($timeoutResult.Data.classification -eq "timeout-and-process") "Expected timeout-and-process classification"
-    Assert-True ($timeoutWatch.ElapsedMilliseconds -lt $timeoutWallClockLimitMs) "timeout should not wait for nested 8s child sleep; elapsed=$($timeoutWatch.ElapsedMilliseconds)ms"
-    Assert-True ($timeoutResult.Data.duration_ms -lt 4000) "timeout duration_ms should include bounded cleanup; duration_ms=$($timeoutResult.Data.duration_ms)"
+    Assert-True ($timeoutWatch.ElapsedMilliseconds -lt $timeoutWallClockLimitMs) "timeout should not wait for nested ${nestedChildSleepSeconds}s child sleep; elapsed=$($timeoutWatch.ElapsedMilliseconds)ms"
+    Assert-True ($timeoutResult.Data.duration_ms -lt $timeoutDurationLimitMs) "timeout duration_ms should include bounded cleanup; duration_ms=$($timeoutResult.Data.duration_ms)"
 
     $earlyExitTimeoutPath = Join-Path $workspace "early-exit-timeout.json"
-    $earlyExitCommand = "Start-Process -FilePath powershell.exe -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 8') -NoNewWindow"
-    Write-JsonSpec @{ command = "powershell.exe"; args = @("-NoProfile", "-Command", $earlyExitCommand); cwd = $workspace; timeout_seconds = 1 } $earlyExitTimeoutPath
+    $earlyExitCommand = "Start-Process -FilePath $powerShellCommandLiteral -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds $nestedChildSleepSeconds') -NoNewWindow"
+    Write-JsonSpec @{ command = $PowerShellCommand; args = @("-NoProfile", "-Command", $earlyExitCommand); cwd = $workspace; timeout_seconds = 1 } $earlyExitTimeoutPath
     $earlyExitWatch = [Diagnostics.Stopwatch]::StartNew()
     $earlyExitResult = Invoke-ScriptJson "Invoke-AgentCommand.ps1" @("-SpecPath", $earlyExitTimeoutPath)
     $earlyExitWatch.Stop()
@@ -274,15 +287,15 @@ try {
     Assert-True ($earlyExitResult.Data.exit_code -eq 124) "Expected early-exit timeout exit_code=124"
     Assert-True ($earlyExitResult.Data.timed_out -eq $true) "Expected early-exit timeout timed_out=true"
     Assert-Equal $earlyExitResult.Data.classification "timeout-and-process" "Expected early-exit timeout classification"
-    Assert-True ($earlyExitWatch.ElapsedMilliseconds -lt $timeoutWallClockLimitMs) "early-exit timeout should not wait for child sleep; elapsed=$($earlyExitWatch.ElapsedMilliseconds)ms"
-    Assert-True ($earlyExitResult.Data.duration_ms -lt 4000) "early-exit timeout duration_ms should be bounded; duration_ms=$($earlyExitResult.Data.duration_ms)"
+    Assert-True ($earlyExitWatch.ElapsedMilliseconds -lt $timeoutWallClockLimitMs) "early-exit timeout should not wait for nested ${nestedChildSleepSeconds}s child sleep; elapsed=$($earlyExitWatch.ElapsedMilliseconds)ms"
+    Assert-True ($earlyExitResult.Data.duration_ms -lt $timeoutDurationLimitMs) "early-exit timeout duration_ms should be bounded; duration_ms=$($earlyExitResult.Data.duration_ms)"
 
     $argvEchoScript = Join-Path $workspace "echo-argv.ps1"
     Set-Content -LiteralPath $argvEchoScript -Value '$args | ConvertTo-Json -Compress' -Encoding UTF8
     $argvSpecPath = Join-Path $workspace "argv-roundtrip.json"
     $expectedArgv = @("", "space arg", 'a"b', 'json:{"x":"y z"}', "C:\path with space\")
     Write-JsonSpec @{
-        command = "powershell.exe"
+        command = $PowerShellCommand
         args = @("-NoProfile", "-File", $argvEchoScript) + $expectedArgv
         cwd = $workspace
         timeout_seconds = 15

@@ -1,8 +1,15 @@
-param()
+param(
+    [string]$PowerShellExe = "powershell.exe"
+)
 
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).ProviderPath
+$PowerShellCommandInfo = Get-Command -Name $PowerShellExe -ErrorAction Stop
+$ResolvedPowerShellExe = if ($PowerShellCommandInfo.Source) { [string]$PowerShellCommandInfo.Source } else { [string]$PowerShellCommandInfo.Definition }
+if ([string]::IsNullOrWhiteSpace($ResolvedPowerShellExe)) {
+    $ResolvedPowerShellExe = $PowerShellExe
+}
 
 function Join-RepoPath {
     param([Parameter(Mandatory = $true)][string]$RelativePath)
@@ -160,7 +167,7 @@ function Invoke-InstallJson {
         [Parameter(Mandatory = $true)][string]$WorkingDirectory
     )
 
-    $result = Invoke-ProcessCapture -FileName "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $InstallScript) -WorkingDirectory $WorkingDirectory
+    $result = Invoke-ProcessCapture -FileName $ResolvedPowerShellExe -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $InstallScript) -WorkingDirectory $WorkingDirectory
     if ($result.ExitCode -ne 0) {
         throw "Install script failed with exit code $($result.ExitCode).`nSTDOUT:`n$($result.Stdout)`nSTDERR:`n$($result.Stderr)"
     }
@@ -233,7 +240,7 @@ function Test-IsolatedGlobalInstall {
         Copy-Item -LiteralPath (Join-RepoPath "core") -Destination (Join-Path $tempRepo "core") -Recurse
 
         $installScript = Join-Path $tempRepo "scripts\install-codex-global.ps1"
-        $firstResult = Invoke-ProcessCapture -FileName "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installScript, "-CodexHome", $tempCodexHome) -WorkingDirectory $tempRepo
+        $firstResult = Invoke-ProcessCapture -FileName $ResolvedPowerShellExe -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installScript, "-CodexHome", $tempCodexHome) -WorkingDirectory $tempRepo
         if ($firstResult.ExitCode -ne 0) {
             throw "Global install script failed with exit code $($firstResult.ExitCode).`nSTDOUT:`n$($firstResult.Stdout)`nSTDERR:`n$($firstResult.Stderr)"
         }
@@ -248,7 +255,7 @@ function Test-IsolatedGlobalInstall {
         Assert-True ($globalSkillText.Contains("core/execution-contract.md")) "Global install SKILL.md should reference bundled core"
         Assert-True (-not $globalSkillText.Contains("../../../core")) "Global install SKILL.md must not keep repo-local core references"
 
-        $secondResult = Invoke-ProcessCapture -FileName "powershell.exe" -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installScript, "-CodexHome", $tempCodexHome) -WorkingDirectory $tempRepo
+        $secondResult = Invoke-ProcessCapture -FileName $ResolvedPowerShellExe -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installScript, "-CodexHome", $tempCodexHome) -WorkingDirectory $tempRepo
         if ($secondResult.ExitCode -ne 0) {
             throw "Global install script must be idempotent for managed targets.`nSTDOUT:`n$($secondResult.Stdout)`nSTDERR:`n$($secondResult.Stderr)"
         }
@@ -264,6 +271,7 @@ function Test-IsolatedGlobalInstall {
 }
 
 $requiredFiles = @(
+    ".github\workflows\ci.yml",
     "README.md",
     "core\execution-contract.md",
     "core\scripts\Test-AgentCommand.ps1",
@@ -296,6 +304,14 @@ foreach ($marker in $requiredReadmeMarkers) {
     Assert-True ($readmeText.Contains($marker)) "README.md is missing required section marker: $marker"
 }
 
+Assert-True ($readmeText.Contains("PowerShell 5.1")) "README.md must describe PowerShell 5.1 compatibility"
+Assert-True ($readmeText.Contains("PowerShell 7")) "README.md must describe PowerShell 7 compatibility"
+
+$ciText = Get-Content -LiteralPath (Join-RepoPath ".github\workflows\ci.yml") -Raw
+Assert-True ($ciText.Contains("windows-latest")) "CI workflow must run on windows-latest"
+Assert-True ($ciText.Contains("powershell.exe")) "CI workflow must include Windows PowerShell 5.1"
+Assert-True ($ciText.Contains("pwsh")) "CI workflow must include PowerShell 7"
+
 $requiredDirectories = @(
     "core\pattern-catalog",
     "core\failure-corpus\cases"
@@ -310,7 +326,7 @@ $failureCaseCount = @(Get-ChildItem -LiteralPath $failureCasesPath -File).Count
 Assert-True ($failureCaseCount -ge 5) "Expected at least 5 failure cases; found $failureCaseCount"
 
 $smokePath = Join-RepoPath "core\tests\run-smoke.ps1"
-$smokeResult = Invoke-ProcessCapture -FileName "powershell.exe" -Arguments @("-NoLogo", "-NonInteractive", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $smokePath) -WorkingDirectory $RepoRoot
+$smokeResult = Invoke-ProcessCapture -FileName $ResolvedPowerShellExe -Arguments @("-NoLogo", "-NonInteractive", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $smokePath, "-PowerShellExe", $ResolvedPowerShellExe) -WorkingDirectory $RepoRoot
 if ($smokeResult.ExitCode -ne 0) {
     throw "Smoke tests failed with exit code $($smokeResult.ExitCode).`nSTDOUT:`n$($smokeResult.Stdout)`nSTDERR:`n$($smokeResult.Stderr)"
 }

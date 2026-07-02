@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  powershell-compatibility:
+    name: ${{ matrix.powershell.name }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        powershell:
+          - name: Windows PowerShell 5.1
+            executable: powershell.exe
+          - name: PowerShell 7
+            executable: pwsh
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        shell: pwsh
+        run: |
+          & "${{ matrix.powershell.executable }}" -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+
+      - name: Run smoke tests
+        shell: pwsh
+        run: |
+          & "${{ matrix.powershell.executable }}" -NoProfile -ExecutionPolicy Bypass -File .\core\tests\run-smoke.ps1 -PowerShellExe "${{ matrix.powershell.executable }}"
+
+      - name: Run release verification
+        shell: pwsh
+        run: |
+          & "${{ matrix.powershell.executable }}" -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-v0.1.ps1 -PowerShellExe "${{ matrix.powershell.executable }}"
